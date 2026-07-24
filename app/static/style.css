@@ -1,0 +1,2244 @@
+/* 予約表（部屋 × 日付）のスタイル。
+ *
+ * セルの色分けは reservation_spec.md ① の優先順位に従う。
+ *   1. 入所日・退所日 … 下地の色を専用色にする
+ *   2. それ以外の宿泊中 … 性別で色分け
+ *   3. 仮予約 … 点線の枠を重ねる（下地の色は変えない）
+ *   4. 重複 … 赤い枠 + ! マークを重ねる（下地の色は変えない）
+ *
+ * 3と4を「重ねる」ために、下地は background、仮予約は outline、
+ * 重複は ::after の枠、と別々の仕組みを使っている。こうすると
+ * 3と4が同時に出ても互いを消さずに両方見える。
+ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  font-size: 14px;
+  color: #222;
+  background: #f5f5f5;
+}
+
+/* ---------------- ヘッダー ---------------- */
+
+.app-header {
+  background: #fff;
+  border-bottom: 1px solid #ddd;
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.app-header h1 {
+  font-size: 16px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.month-nav a {
+  color: #1565c0;
+  text-decoration: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.month-nav a:hover { background: #e3f2fd; }
+
+.month-nav .current-month {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 7em;
+  text-align: center;
+}
+
+.today-link {
+  border: 1px solid #90caf9;
+  font-size: 12px;
+}
+
+/* 部屋票の印刷ボタン。月移動リンクの並びに置くので、見た目を合わせる。 */
+.btn-print {
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #1565c0;
+  background: #fff;
+  cursor: pointer;
+}
+.btn-print:hover { background: #e3f2fd; }
+
+/* 画面間の移動リンク。.month-nav の中にも外にも置くので、
+   親のスタイルに頼らず単体で成立させる。 */
+.report-link {
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #1565c0;
+  text-decoration: none;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.report-link:hover { background: #e3f2fd; }
+
+/* 日次表示。予約データから計算で出している数字なので、入力欄ではなく
+   読み取り専用の並びとして見せる。 */
+
+.daily-stats {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.daily-stats .stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 8px;
+  border-left: 1px solid #e0e0e0;
+  min-width: 54px;
+}
+
+.daily-stats .stat:first-child { border-left: none; }
+
+.stat-label {
+  font-size: 11px;
+  color: #898781;
+  line-height: 1.3;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0b0b0b;
+  line-height: 1.1;
+}
+
+.stat-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #52514e;
+  margin-left: 1px;
+}
+
+/* 稼働率は一番読み取りたい指標なので、数字を他より大きく出す（UI改善⑧）。
+   計算方法はホバーで説明が出るので、カーソルもヘルプにしておく。 */
+.stat-rate {
+  border-left: 1px solid #e0e0e0;
+  cursor: help;
+}
+.stat-rate .stat-value { font-size: 19px; }
+
+.stat-sub {
+  font-size: 10px;
+  color: #898781;
+  line-height: 1.2;
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+/* 集計に入れていない数字なので、確定の数字より控えめに出す */
+.stat-tentative .stat-value { color: #52514e; font-weight: 500; }
+
+/* 凡例 */
+
+.legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: #555;
+}
+
+.legend-item { display: flex; align-items: center; gap: 4px; }
+
+.swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid #bbb;
+  display: inline-block;
+}
+
+/* 凡例のスウォッチは予約表の帯と同じ淡い版にして、色見本と帯を一致させる。 */
+.swatch-checkin  { background: var(--color-checkin-fill); }
+.swatch-checkout { background: var(--color-checkout-fill); }
+.swatch-stay     { background: var(--color-stay-fill); }
+.swatch-male     { background: var(--color-male); }
+.swatch-female   { background: var(--color-female); }
+.swatch-tentative { background: #fff; border: 2px dashed #555; }
+.swatch-conflict  { background: #fff; border: 2px solid var(--color-conflict); }
+.swatch-daytrip {
+  background: var(--color-daytrip);
+}
+.swatch-mixed-gender {
+  background: linear-gradient(
+    45deg,
+    var(--color-mixed-gender) 0 40%, #fff 40% 100%
+  );
+}
+
+.swatch-turnover {
+  background: linear-gradient(
+    135deg,
+    var(--color-checkout-fill) 0 48%, #fff 48% 52%, var(--color-checkin-fill) 52% 100%
+  );
+}
+
+/* 凡例の折りたたみ。予約表を全画面寄りにするため、色の早見表は普段畳んでおき、
+   必要なときだけ開く（<details> なのでJSは不要）。開くと帯の下に一覧が出る。 */
+.legend-toggle { font-size: 12px; }
+
+.legend-toggle > summary {
+  cursor: pointer;
+  color: #1565c0;
+  padding: 3px 8px;
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  list-style: none;      /* 既定の三角マーカーを消す */
+  user-select: none;
+  white-space: nowrap;
+}
+.legend-toggle > summary::-webkit-details-marker { display: none; }
+.legend-toggle > summary::before { content: "凡例 ▸ "; }
+.legend-toggle[open] > summary::before { content: "凡例 ▾ "; }
+/* summary のテキスト「凡例」は ::before と重複するので隠し、開閉印だけ見せる */
+.legend-toggle > summary { font-size: 0; }
+.legend-toggle > summary::before { font-size: 12px; }
+.legend-toggle > summary:hover { background: #e3f2fd; }
+
+.legend-toggle > .legend { margin-top: 6px; }
+
+/* 重複している予約のお知らせ。グリッドの赤枠は下までスクロールしないと
+   見えないことがあるので、上に一覧を出す。 */
+.conflict-banner {
+  margin: 12px 12px 0;
+  padding: 8px 12px;
+  background: #fff3e0;
+  border: 1px solid #ffb74d;
+  border-left: 4px solid var(--color-conflict);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.conflict-banner strong { color: #bf360c; }
+
+/* 重複バナーは <details> で、見出し（件数）だけ常に見せ、一覧は畳む。
+   閉じていても警告と分かるよう、開閉印は警告色にして目立たせる。 */
+.conflict-banner > summary {
+  cursor: pointer;
+  list-style: none;      /* 既定の三角マーカーを消す */
+  user-select: none;
+}
+.conflict-banner > summary::-webkit-details-marker { display: none; }
+.conflict-banner > summary::before {
+  content: "▸ ";
+  color: #bf360c;
+  font-weight: 700;
+}
+.conflict-banner[open] > summary::before { content: "▾ "; }
+
+/* 警告は件数が増えると縦に伸びて表を押し下げるので、横に並べて
+   折り返す（チップ状）。上下の場所を取らず、表を広く見せる。 */
+.conflict-banner ul {
+  margin: 6px 0 0;
+  padding-left: 0;
+  list-style: none;
+  color: #555;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.conflict-banner li { margin-bottom: 0; }
+
+/* 警告の各行は、押すと該当のマスへ飛ぶボタン。横並びなので、
+   押せる範囲が分かるよう薄い枠のチップにする。 */
+.conflict-jump {
+  display: inline-block;
+  width: auto;
+  padding: 2px 8px;
+  border: 1px solid #ffcc80;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.conflict-jump:hover { background: #ffe0b2; text-decoration: underline; }
+.conflict-jump:focus-visible { outline: 2px solid var(--color-conflict); }
+
+/* 準個室の男女同室のお知らせ。重複とは別の話なので色を分ける。 */
+.mixed-gender-banner {
+  background: #f3e5f5;
+  border-color: #ce93d8;
+  border-left-color: var(--color-mixed-gender);
+}
+
+.mixed-gender-banner strong { color: var(--color-mixed-gender); }
+
+/* ---------------- 全体の配置 ---------------- */
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  /* 縦を稼ぐため上下の余白は控えめに。左右は掴みやすさのため残す。 */
+  padding: 6px 12px;
+}
+
+.grid-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  max-height: calc(100vh - 106px);
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* グリッドと部屋未定パネルの間の仕切り。左右にドラッグして幅を変える。
+   操作は static/grid.js。パネルと同じ高さにして掴みやすくする。 */
+.col-resizer {
+  flex: 0 0 auto;
+  width: 8px;
+  align-self: stretch;
+  min-height: calc(100vh - 106px);
+  background: #e0e0e0;
+  border-radius: 4px;
+  cursor: col-resize;
+}
+
+.col-resizer:hover { background: #90a4ae; }
+
+/* ドラッグ中は文字が選択されたりカーソルが乱れたりしないようにする。 */
+body.is-col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---------------- グリッド本体 ---------------- */
+
+.grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  /* ドラッグで範囲を選ぶので、文字が選択されないようにする */
+  user-select: none;
+}
+
+.grid th,
+.grid td {
+  border-right: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0;
+  text-align: center;
+}
+
+/* 日付ヘッダー（上に固定） */
+
+.grid thead th {
+  position: sticky;
+  background: #fafafa;
+  font-weight: 500;
+  font-size: 11px;
+  color: #555;
+  height: 16px;
+  /* 列幅はマス（38px）に合わせる（UI改善⑥、実機確認で44→38pxに調整） */
+  min-width: 38px;
+  z-index: 10;
+}
+
+/* 2段目（曜日）の貼り付き位置は1段目の高さぶん（16px）下げる。
+   thead th の height を変えたら、この top も必ず揃える。 */
+.grid thead tr:nth-child(1) th { top: 0; }
+.grid thead tr:nth-child(2) th { top: 16px; }
+
+.day-head.is-sat, .weekday-head.is-sat { color: #1976d2; }
+.day-head.is-sun, .weekday-head.is-sun { color: #d32f2f; }
+
+/* 今日の目印は日付見出しだけに置く（UI改善仕様②）。
+   以前は列のマス全部に黄色い枠を出していたが、空欄の列が一番目立って
+   しまい、対応が必要な重複警告より視線を持っていっていた。
+   見出しは上に固定表示されるので、下までスクロールしても位置は分かる。 */
+.day-head.is-today, .weekday-head.is-today {
+  background: #fff9c4;
+  font-weight: 700;
+  color: #222;
+}
+
+.weekday-head.is-today { box-shadow: inset 0 -2px 0 #fbc02d; }
+
+/* 部屋番号の列（左に固定）。日付ヘッダーと交差する角は一番手前に置く */
+
+.corner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 20;
+  background: #fafafa;
+  min-width: 62px;
+  font-size: 12px;
+}
+
+.room-head {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #fafafa;
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 62px;
+  height: 24px;
+  border-right: 2px solid #ccc;
+}
+
+/* 準個室（二人部屋）は薄く色を敷いて、個室と区別できるようにする */
+.room-head.is-shared { background: #f0f0f5; }
+
+/* 棟の変わり目に太い線を入れる */
+.wing-start th,
+.wing-start td { border-top: 2px solid #999; }
+
+/* ---------------- 日ごとの集計（グリッド下に貼り付く） ----------------
+   列（日付）は上の日付ヘッダーと同じなので、tfoot に置くだけで縦に揃う。
+   縦スクロールしても常に見えるよう、下端に position:sticky で固定する。 */
+.day-totals th,
+.day-totals td {
+  height: 15px;
+  font-size: 11px;
+  background: #f7f7f4;
+  position: sticky;
+  z-index: 6;
+  color: #333;
+}
+/* 4行を下端に段違いで貼り付ける。最下段（泊り）を 0 にして、上の行ほど
+   1行ぶん（15px）ずつ持ち上げる。こうしないと全行が重なってしまう。
+   ここの段差は上の height と必ず揃える（縦を詰めるため 20→15px にした）。 */
+.day-totals tr:nth-child(4) th, .day-totals tr:nth-child(4) td { bottom: 0; }
+.day-totals tr:nth-child(3) th, .day-totals tr:nth-child(3) td { bottom: 15px; }
+.day-totals tr:nth-child(2) th, .day-totals tr:nth-child(2) td { bottom: 30px; }
+.day-totals tr:nth-child(1) th, .day-totals tr:nth-child(1) td { bottom: 45px; }
+
+/* 合計行は一番上（本体との境目）。太い線で表と区切る。 */
+.day-totals .totals-total th,
+.day-totals .totals-total td { border-top: 2px solid #bbb; }
+
+/* 数字が入る日ごとのマス。今日の列だけ薄く色を敷いて位置を分かりやすく。 */
+.day-totals td { text-align: center; font-variant-numeric: tabular-nums; }
+.day-totals td.is-today { background: #fff9c4; }
+
+/* 行の見出し（合計／入所／退所／泊り）。左端に固定して、横スクロールでも残す。
+   下端固定と左端固定が交わるので、他より手前（z-index高め）に置く。 */
+.day-totals .totals-label {
+  left: 0;
+  z-index: 12;
+  background: #eeeeea;
+  font-weight: 600;
+  font-size: 11px;
+  min-width: 62px;
+  border-right: 2px solid #ccc;
+  text-align: center;
+}
+
+/* ---------------- セル ---------------- */
+
+.cell {
+  position: relative;
+  /* タブレットで手袋をしたまま押せるだけの横幅を確保しつつ、実機確認で
+     44pxは大きすぎたため38pxに調整した（UI改善⑥）。高さも全体を
+     見渡しやすいよう34→30→27→25→24pxに下げた（名前を11pxにして重なった
+     段でも文字が収まるようにしたので、さらに低くできた）。狭い画面では
+     マスを縮めず、.grid-wrap の overflow:auto で横スクロールに逃がす。 */
+  width: 38px;
+  min-width: 38px;
+  height: 24px;
+  cursor: pointer;
+  background: #fff;
+}
+
+/* マスの中身は「段（bar）」で描く。予約が重なっていない普段は1本だけで、
+   top:0 / height:100% でマスいっぱいになり、見た目は従来と変わらない。
+   重なった日だけ段が2本以上になり、上下にずれて両方が見える。 */
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  /* 既定は四隅を丸める。1日だけの予約（日帰り）は丸いカプセル型になり、
+     連続予約は下で「続く側」の角だけ落として、始まり／終わりだけが
+     丸い1本の棒に見えるようにする。 */
+  border-radius: 6px;
+}
+
+/* 翌日も続く予約のバーは、塗りを右へ1pxはみ出させてセルの縦罫線
+   （td の border-right）を覆い、右角を落として隣の帯とピッタリつなぐ。
+   これで連続予約が日ごとに切れず、1本の棒につながって見える。
+   空きマスの罫線はそのまま残る。 */
+.bar.continues-right {
+  right: -1px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 前日から続くバーは、左角を落として前日の帯と段差なくつなぐ。
+   丸いのは帯の始まり（入所日）だけになる。 */
+.bar.continues-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* 段の境目に区切り線を入れて、別々の予約が上下に並んでいることを示す。
+   連続利用（普通の引き継ぎ）は控えめな灰線、実際に泊まりが重なっている
+   真の重複だけ赤線にして、ひと目で区別できるようにする。 */
+.bar + .bar { border-top: 1px solid rgba(0, 0, 0, 0.35); }
+.cell.is-conflict .bar + .bar { border-top-color: #b71c1c; border-top-width: 2px; }
+
+.bar:hover { filter: brightness(0.9); }
+
+/* 重複警告から飛んできたマスを、数秒だけ光らせて場所を知らせる。
+   点滅が苦手な人もいるので、その設定のときは光らせず枠だけ出す。 */
+.cell.is-flash {
+  z-index: 4;
+  animation: cell-flash 0.5s ease-in-out 4;
+}
+
+@keyframes cell-flash {
+  0%, 100% { box-shadow: inset 0 0 0 3px var(--color-conflict); }
+  50%      { box-shadow: inset 0 0 0 3px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell.is-flash {
+    animation: none;
+    box-shadow: inset 0 0 0 3px var(--color-conflict);
+  }
+}
+
+/* 1. 入所日・退所日（最優先）。帯には利用者名が重なるので、地色は淡い版
+   （--color-*-fill）を使って文字を読みやすくする。凡例・グラフ側は濃い版。 */
+.bar.kind-checkin  { background: var(--color-checkin-fill); }
+.bar.kind-checkout { background: var(--color-checkout-fill); }
+
+/* 同じ日に退所と入所が重なる日は、斜めに割って両方見せる。
+   左上が出ていく人（退所）、右下が入ってくる人（入所）。 */
+.bar.kind-turnover {
+  background: linear-gradient(
+    135deg,
+    var(--color-checkout-fill) 0%,
+    var(--color-checkout-fill) 48%,
+    #fff 48%,
+    #fff 52%,
+    var(--color-checkin-fill) 52%,
+    var(--color-checkin-fill) 100%
+  );
+}
+
+/* 日帰り（0泊）は、入所日と退所日が同じ日の1件。
+   入所日の緑とはっきり区別できるよう、専用の茶系にする（UI改善⑨）。
+   色だけに頼らないよう、右上に「日」の一文字も添える。 */
+.bar.kind-daytrip {
+  background: var(--color-daytrip);
+}
+.bar.kind-daytrip::after {
+  content: "日";
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  color: #fff;
+  pointer-events: none;
+}
+
+/* 2. それ以外の宿泊中は「泊り（滞在中）」の状態色で一律に塗る。
+   以前は性別で塗り分けていたが、月次グラフの「青＝泊り」と意味が
+   衝突するため、帯の色は状態を表す用途に統一した。性別は帯の色ではなく、
+   氏名の横に付く「男／女」バッジ（色＋文字）で示す（下記 .name-gender）。 */
+.bar.kind-stay { background: var(--color-stay-fill); }
+
+/* 3. 仮予約は点線の枠を重ねる（下地の色はそのまま） */
+.bar.is-tentative {
+  outline: 2px dashed #37474f;
+  outline-offset: -2px;
+}
+
+/* 準個室に男女が同室になっている印（設定で有効にした施設だけ）。
+   左下の三角。仮予約の点線とも別の形にしてあるので、両方が同じマスに
+   重なっても見分けがつく。 */
+.cell.is-mixed-gender::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-bottom: 9px solid var(--color-mixed-gender);
+  border-right: 9px solid transparent;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* 利用者名は入所日のマスにだけ出す。
+   1マスに収まらないので、後ろのマスの上にはみ出して表示する。
+   pointer-events を切ってあるので、下のマスは普通にクリックできる。 */
+.cell-label {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  /* 太字＋薄い白フチで、背景と重なっても読めるようにする。
+     重なった段（1段15px前後）でも文字が収まるよう11pxにした。
+     これで行の高さをさらに下げられる。 */
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #212121;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 氏名の横に付く性別バッジ。帯の色を状態（泊り/入所/退所）に統一したので、
+   性別はここで示す。色覚特性のある人にも伝わるよう、色だけに頼らず
+   「男」「女」の一文字を必ず併記する。名前より前に小さく置く。 */
+.name-gender {
+  display: inline-block;
+  min-width: 12px;
+  margin-right: 2px;
+  padding: 0 1px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  text-shadow: none;
+  vertical-align: middle;
+}
+/* 文字色は帯の性別バッジ（.tag-male / .tag-female）と同じ濃色にして、
+   淡い地色の上でもコントラストを確保する。 */
+.name-gender.gender-male   { background: var(--color-male); color: #0d2b4e; }
+.name-gender.gender-female { background: var(--color-female); color: #5c1030; }
+
+/* ドラッグ中に選んでいる範囲 */
+.cell.is-selecting {
+  background: #bbdefb;
+  box-shadow: inset 0 0 0 2px #1976d2;
+}
+
+/* ---------------- 部屋未定リスト ---------------- */
+
+.unassigned {
+  width: 260px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 12px;
+  max-height: calc(100vh - 130px);
+  overflow: auto;
+}
+
+.unassigned h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unassigned .count {
+  background: #eceff1;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+/* 部屋未定パネルの「たたむ／開く」。
+   既定は展開（.unassigned-body を表示、細い縦タブは隠す）。たたむと表が
+   横幅いっぱいになり、パネルは縦タブだけになる（JSは static/grid.js）。 */
+.unassigned-tab { display: none; }
+
+/* h2 の右端に置く「たたむ（»）」ボタン */
+.panel-collapse {
+  margin-left: auto;
+  width: 24px;
+  height: 22px;
+  line-height: 1;
+  border: 1px solid #cfd8dc;
+  border-radius: 4px;
+  background: #fff;
+  color: #607d8b;
+  cursor: pointer;
+  font-size: 14px;
+}
+.panel-collapse:hover { background: #eceff1; color: #37474f; }
+
+/* たたんだ状態 */
+.layout.is-panel-collapsed .col-resizer { display: none; }
+
+.layout.is-panel-collapsed .unassigned {
+  width: 34px !important;
+  min-width: 34px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+.layout.is-panel-collapsed .unassigned-body { display: none; }
+
+/* 畳んだときの縦タブ。縦書きにして細い幅に「部屋未定 N」を収める。 */
+.layout.is-panel-collapsed .unassigned-tab {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 140px;
+  padding: 12px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 13px;
+  font-weight: 600;
+  color: #37474f;
+}
+.layout.is-panel-collapsed .unassigned-tab:hover { background: #f5faff; }
+.layout.is-panel-collapsed .unassigned-tab .count {
+  background: #eceff1;
+  border-radius: 10px;
+  padding: 6px 2px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.btn-new-unassigned {
+  width: 100%;
+  padding: 6px;
+  margin-bottom: 10px;
+  border: 1px dashed #90a4ae;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #37474f;
+}
+
+.btn-new-unassigned:hover { background: #eceff1; }
+
+.unassigned-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.unassigned-item {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 8px;
+  background: #fafafa;
+  /* カードの実幅で中身のレイアウトを切り替えるためのコンテナ（UI改善⑩）。 */
+  container: unassigned-card / inline-size;
+}
+
+/* 入所日が近いほど目立たせる（UI改善⑤）。左の太いラインで急ぎ度を示す。
+   今日・明日（または入所日超過）＝赤、2〜3日以内＝オレンジ、それ以降＝通常。 */
+.unassigned-item.urgency-urgent {
+  border-color: #ef9a9a;
+  border-left: 4px solid #d32f2f;
+  background: #fff5f5;
+}
+.unassigned-item.urgency-soon {
+  border-left: 4px solid #f57c00;
+  background: #fff9f0;
+}
+
+/* 急ぎの「まもなく」ラベル。ステータス系なので角ばった形にそろえる。 */
+.tag-urgent { background: #d32f2f; color: #fff; }
+
+/* 部屋未定の件数バッジ。急ぎの予約があるときだけ赤くして、
+   リストを開かなくても気づけるようにする（UI改善⑤の補足）。 */
+.unassigned .count.count-urgent {
+  background: #d32f2f;
+  color: #fff;
+  font-weight: 700;
+}
+
+.unassigned-item .name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.unassigned-item .period {
+  font-size: 12px;
+  color: #666;
+  margin: 4px 0 6px;
+}
+
+.unassigned-item .actions {
+  display: flex;
+  gap: 4px;
+}
+
+.assign-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px;
+}
+
+.btn-edit {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+/* カードが狭くなったら、部屋選択と「編集」を横並びから縦並びに切り替え、
+   ボタンを横いっぱいにして押しやすくする（UI改善⑩）。カード自身を
+   コンテナにしているので、画面幅ではなくカードの実幅で自動判定する。 */
+@container unassigned-card (max-width: 210px) {
+  .unassigned-item .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .unassigned-item .btn-edit {
+    width: 100%;
+  }
+}
+
+.tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 400;
+}
+
+/* ステータス（仮予約など）と性別を、色だけでなく形でも見分けられるように
+   分ける（UI改善④）。ステータス＝角ばったアンバー、性別＝角丸のピル。 */
+.tag-status {
+  border-radius: 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.tag-gender {
+  border-radius: 999px;
+}
+
+.tag-tentative { background: #ffb300; color: #3e2723; }
+.tag-male      { background: var(--color-male); color: #0d2b4e; }
+.tag-female    { background: var(--color-female); color: #5c1030; }
+
+.empty-note {
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ---------------- 入力フォーム（モーダル） ---------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-backdrop[hidden] { display: none; }
+
+.modal {
+  background: #fff;
+  border-radius: 6px;
+  padding: 20px;
+  width: 380px;
+  max-width: 92vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal-title { margin: 0 0 14px; font-size: 16px; }
+
+.modal label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #444;
+}
+
+.modal label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 14px;
+}
+
+.modal input[type="text"],
+.modal input[type="date"] {
+  width: 100%;
+  padding: 6px;
+  margin-top: 3px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.modal .row { display: flex; gap: 10px; }
+.modal .row label { flex: 1; }
+
+.modal fieldset {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+
+.modal legend { font-size: 12px; color: #666; padding: 0 4px; }
+
+.nights-note, .bed-note {
+  font-size: 12px;
+  color: #666;
+  margin: 0 0 10px;
+  min-height: 1em;
+}
+
+.form-error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+
+.form-error[hidden] { display: none; }
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.modal-actions .spacer { flex: 1; }
+
+.modal-actions button {
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.btn-save {
+  background: #1565c0;
+  color: #fff;
+  border: 1px solid #1565c0;
+}
+
+.btn-cancel {
+  background: #fff;
+  border: 1px solid #ccc;
+}
+
+.btn-delete {
+  background: #fff;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+}
+
+.btn-delete[hidden] { display: none; }
+
+/* ============================================================
+ * 月次レポート
+ *
+ * 色は予約表と完全に統一する。同じ概念（泊り/入所/退所）は画面をまたいで
+ * 必ず同じ色にする、という方針（色統一）に沿って、グラフも予約表の状態色
+ * トークン（--color-stay / --color-checkin / --color-checkout）をそのまま
+ * 参照する。
+ *
+ *   泊り人数 = --color-stay #0072B2 / 入所人数 = --color-checkin #009E73
+ *   退所人数 = --color-checkout #D55E00
+ *
+ * この3色は CUD（Okabe-Ito）推奨配色で、P型・D型・T型のいずれの色覚特性でも
+ * 隣り合わせで相互に見分けられる。以前は予約表の緑/橙がP型でほぼ同色になる
+ * のを避けてグラフだけ別配色にしていたが、CUD配色への差し替えでその問題が
+ * 解消したため、両者を同じ値に統一した。
+ *
+ * それでも色だけに頼らないよう、凡例・帯の間の余白・下の一覧表を必ず併置する。
+ * ============================================================ */
+
+:root {
+  --viz-overnight: var(--color-stay);
+  --viz-checkout: var(--color-checkout);
+  --viz-checkin: var(--color-checkin);
+
+  --ink-primary: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #898781;
+  --viz-gridline: #e1e0d9;
+  --viz-baseline: #c3c2b7;
+}
+
+.report {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 1200px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.panel-title {
+  font-size: 14px;
+  margin: 0 0 2px;
+  color: var(--ink-primary);
+}
+
+.panel-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 0 0 12px;
+}
+
+/* ---- 稼働率（この画面の主役の数字） ---- */
+
+.hero-panel {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.hero { display: flex; flex-direction: column; }
+
+.hero-label {
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.hero-value {
+  font-size: 52px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--ink-primary);
+}
+
+.hero-value small {
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--ink-secondary);
+  margin-left: 2px;
+}
+
+.hero-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.tiles { display: flex; gap: 28px; }
+
+.tile { display: flex; flex-direction: column; }
+
+.tile-label { font-size: 12px; color: var(--ink-secondary); }
+
+.tile-value {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  line-height: 1.15;
+}
+
+.tile-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-secondary);
+  margin-left: 2px;
+}
+
+.tile-sub { font-size: 11px; color: var(--ink-muted); }
+
+/* ---- グラフ ---- */
+
+.chart-legend { margin-bottom: 10px; }
+
+.key {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.key-overnight { background: var(--viz-overnight); }
+.key-checkout  { background: var(--viz-checkout); }
+.key-checkin   { background: var(--viz-checkin); }
+
+/* 定員は帯ではなく線なので、凡例も線で示す */
+.key-capacity {
+  height: 0;
+  border-top: 2px solid var(--ink-secondary);
+  border-radius: 0;
+  align-self: center;
+}
+
+.chart {
+  display: flex;
+  height: 240px;
+}
+
+.chart-short { height: 130px; }
+
+.y-axis {
+  width: 34px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tick {
+  position: absolute;
+  right: 7px;
+  transform: translateY(50%);
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.plot {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--viz-baseline);
+  min-width: 0;
+}
+
+/* 目盛り線はデータより手前に出ない。細い実線1本だけ。 */
+.gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--viz-gridline);
+}
+
+.capacity-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--ink-secondary);
+  z-index: 2;
+}
+
+.col {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* 今日の位置は分かればよいので、ごく薄く敷くだけにする。
+   はっきり塗ると、データの棒より背景のほうが目立ってしまう。 */
+.col.is-today::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(251, 192, 45, 0.16);
+}
+
+.x-tick.is-today {
+  color: var(--ink-primary);
+  font-weight: 700;
+}
+
+.stack {
+  position: relative;
+  width: 100%;
+  max-width: 24px;   /* 棒は太くしすぎない。余った幅は余白にする */
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.seg { width: 100%; }
+
+/* 棒の先だけ角を丸める。土台側は直角のまま。 */
+.seg.is-top { border-radius: 4px 4px 0 0; }
+
+/* 積み上げた帯どうしは、線ではなく余白で切り分ける */
+.seg.has-gap { margin-bottom: 2px; }
+
+.seg-overnight { background: var(--viz-overnight); }
+.seg-checkout  { background: var(--viz-checkout); }
+.seg-checkin   { background: var(--viz-checkin); }
+
+/* 数値は全部の棒には出さない。狙った日だけカーソルで読む。 */
+.tip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  background: var(--ink-primary);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.tip strong { display: block; font-weight: 600; }
+
+/* マウスが使えない場合でも、キーボードのTabで同じ内容を出せるようにする。
+   （正確な数字は下の一覧表でも読めるので、こちらは補助） */
+.col:hover .tip,
+.col:focus .tip { display: block; }
+
+.col:hover .stack,
+.col:focus .stack { filter: brightness(1.1); }
+
+.col:focus {
+  outline: 2px solid var(--viz-overnight);
+  outline-offset: -2px;
+}
+
+.x-axis {
+  display: flex;
+  margin-left: 34px;
+  margin-top: 4px;
+}
+
+.x-tick {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.x-tick.is-sat { color: #1976d2; }
+.x-tick.is-sun { color: #d32f2f; }
+
+/* ---- 一覧表 ---- */
+
+.table-scroll { overflow-x: auto; }
+
+.report-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  /* 親カードの幅いっぱいに広げる（指示書§3）。ただし7列しかないので
+     素直に広げると数字が横に散らばって行として読めなくなる。これを防ぐため
+     table-layout:fixed にし、日付・曜日を狭く固定して、数値5列を均等配分する。
+     数字は右揃えなので、各列の右端に揃って縦にも読める。 */
+  width: 100%;
+  table-layout: fixed;
+  min-width: 480px;
+}
+
+/* 日付・曜日は内容が短いので狭く固定。残り幅を数値5列で均等に分ける。 */
+.report-table th:nth-child(1),
+.report-table td:nth-child(1) { width: 4.5em; }
+.report-table th:nth-child(2),
+.report-table td:nth-child(2) { width: 3.5em; }
+
+.report-table th,
+.report-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.report-table thead th {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  font-weight: 500;
+  border-bottom: 1px solid var(--viz-baseline);
+}
+
+/* 見出しも値も同じ右揃えにして、縦に揃える */
+.report-table th.num,
+.report-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-table .strong { font-weight: 600; }
+.report-table .muted { color: var(--ink-muted); }
+.report-table .is-sat { color: #1976d2; }
+.report-table .is-sun { color: #d32f2f; }
+.report-table tr.is-today { background: #fff9c4; }
+
+.report-table tfoot th,
+.report-table tfoot td {
+  border-top: 1px solid var(--viz-baseline);
+  border-bottom: none;
+  font-weight: 600;
+  padding-top: 7px;
+}
+
+/* ============================================================
+ * 利用者マスタ
+ * ============================================================ */
+
+.users-page {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 1400px;
+}
+
+.users-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.users-head h2 {
+  font-size: 14px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.users-head .count {
+  background: #eceff1;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.btn-primary {
+  background: #1565c0;
+  color: #fff;
+  border: 1px solid #1565c0;
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-primary:hover { background: #0d47a1; }
+
+/* 名前での絞り込み。人数が増えると一覧から探すのが辛くなるため。 */
+
+.user-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-search input {
+  padding: 5px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 200px;
+}
+
+.clear-search {
+  font-size: 12px;
+  color: #1565c0;
+  text-decoration: none;
+}
+
+.user-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.user-table th,
+.user-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  vertical-align: top;
+}
+
+.user-table thead th {
+  font-size: 11px;
+  color: #52514e;
+  font-weight: 500;
+  border-bottom: 1px solid #c3c2b7;
+  white-space: nowrap;
+}
+
+.user-table .name { font-weight: 600; white-space: nowrap; }
+
+/* 注意事項は長くなりがちなので、ここだけ幅を取る */
+.user-table .notes { min-width: 160px; }
+
+.user-table .sub {
+  display: block;
+  font-size: 11px;
+  color: #898781;
+}
+
+.user-table tbody tr:hover { background: #fafafa; }
+
+.empty-state {
+  color: #898781;
+  text-align: center;
+  padding: 32px 16px;
+  font-size: 13px;
+}
+
+/* 登録フォームは項目が多いので、予約フォームより広くする */
+.modal-wide { width: 480px; }
+
+.modal .row.grow-row { align-items: flex-end; }
+.modal label.grow { flex: 1; }
+
+.modal .gender-set {
+  margin: 0 0 10px;
+  flex-shrink: 0;
+}
+
+.modal select {
+  width: 100%;
+  padding: 6px;
+  margin-top: 3px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+
+/* 予約フォームから利用者マスタへの導線 */
+.new-user-line {
+  font-size: 12px;
+  color: #898781;
+  margin: -6px 0 12px;
+}
+
+.new-user-line a { color: #1565c0; }
+
+.field-note {
+  font-size: 11px;
+  color: #898781;
+  margin: -6px 0 12px;
+}
+
+/* ふりがなが未入力の人は、埋めるべきと分かるようにしておく */
+.user-table .sub.missing { color: #c62828; }
+
+/* ============================================================
+ * 当日帳票（当日台帳・入浴表）
+ *
+ * 紙で回す運用が残っているため、画面表示と印刷の両方で成立させる。
+ * 画面用の操作類には .no-print を付けて、印刷時には落とす。
+ * ============================================================ */
+
+.ledger-page,
+.bathing-page {
+  padding: 12px;
+  max-width: 1400px;
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-csv,
+.btn-print {
+  border: 1px solid #90a4ae;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  background: #fff;
+  color: #37474f;
+  text-decoration: none;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.btn-csv:hover,
+.btn-print:hover { background: #eceff1; }
+
+/* 当日分／1週間分の切り替え */
+
+.span-switch {
+  display: flex;
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.span-switch a {
+  padding: 4px 14px;
+  font-size: 12px;
+  color: #1565c0;
+  text-decoration: none;
+  background: #fff;
+}
+
+.span-switch a.is-active {
+  background: #1565c0;
+  color: #fff;
+}
+
+/* 印刷したときだけ出る見出し。画面では控えめに置く。 */
+
+.print-title {
+  font-size: 15px;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.print-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #52514e;
+}
+
+/* ---------------- 当日台帳 ---------------- */
+
+/* ブロック数は施設ごとの設定。CSS変数で受けて列数にする。 */
+.ledger-blocks {
+  display: grid;
+  grid-template-columns: repeat(var(--blocks), 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.ledger-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  background: #fff;
+}
+
+.ledger-table th,
+.ledger-table td {
+  border: 1px solid #ccc;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ledger-table thead th {
+  background: #f0f0f0;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ledger-table .col-room { width: 52px; white-space: nowrap; }
+.ledger-table .col-name { width: 110px; }
+
+.ledger-table .is-unassigned .col-room {
+  background: #fff3e0;
+  font-weight: 600;
+}
+
+/* 高さ合わせの空行。枠だけ残す。 */
+.ledger-table .filler td { height: 22px; }
+
+.marks { white-space: nowrap; }
+
+.mark {
+  display: inline-block;
+  font-size: 10px;
+  padding: 0 3px;
+  border-radius: 2px;
+  line-height: 1.5;
+  margin-left: 2px;
+}
+
+.mark-in { background: var(--color-checkin); color: #fff; }
+.mark-out { background: var(--color-checkout); color: #fff; }
+.mark-tentative { background: #37474f; color: #fff; }
+
+.ledger-note {
+  font-size: 12px;
+  color: #898781;
+  margin-top: 10px;
+}
+
+/* ---------------- 入浴表（当日分） ---------------- */
+
+.bathing-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  background: #fff;
+  min-width: 480px;
+}
+
+.bathing-table th,
+.bathing-table td {
+  border: 1px solid #ccc;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.bathing-table thead th {
+  background: #f0f0f0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bathing-table .col-room { width: 70px; }
+.bathing-table .col-name { width: 150px; }
+.bathing-table .col-type { width: 90px; }
+/* 紙に印刷してチェックを入れる欄なので、空のまま高さだけ確保する */
+.bathing-table .col-check { width: 60px; }
+
+/* ---------------- 入浴表（1週間分） ---------------- */
+
+.bathing-hint {
+  font-size: 12px;
+  color: #52514e;
+  margin: 0 0 10px;
+}
+
+.bathing-week {
+  border-collapse: collapse;
+  font-size: 13px;
+  background: #fff;
+}
+
+.bathing-week th,
+.bathing-week td {
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.bathing-week thead th {
+  background: #fafafa;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bathing-week .col-room { width: 66px; white-space: nowrap; }
+.bathing-week .col-name { width: 130px; white-space: nowrap; }
+.bathing-week .col-type { width: 80px; white-space: nowrap; }
+.bathing-week .col-manual { width: 56px; text-align: center; }
+
+.bathing-week .col-day {
+  width: 46px;
+  text-align: center;
+  padding: 2px;
+}
+
+.bathing-week thead .col-day .wd {
+  display: block;
+  font-weight: 400;
+  color: #898781;
+}
+
+.bathing-week thead .col-day.is-sat, .bathing-week thead .col-day.is-sat .wd { color: #1976d2; }
+.bathing-week thead .col-day.is-sun, .bathing-week thead .col-day.is-sun .wd { color: #d32f2f; }
+.bathing-week .col-day.is-today { background: #fff9c4; }
+
+/* 滞在期間の外は押せないことが分かるよう、薄く敷く */
+.bathing-week .col-day.is-outside { background: #f5f5f5; }
+
+.bath-toggle {
+  width: 30px;
+  height: 26px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: #1565c0;
+  padding: 0;
+}
+
+.bath-toggle:hover { background: #e3f2fd; }
+.bath-toggle.is-on { background: #e3f2fd; border-color: #90caf9; }
+
+.bath-toggle:focus-visible {
+  outline: 2px solid #1565c0;
+  outline-offset: 1px;
+}
+
+/* 手動で調整した行は、自動のものと見分けが付くようにしておく */
+.bathing-week tr.is-manual .col-name { font-weight: 600; }
+.bathing-week tr.is-manual { background: #f3f7fb; }
+
+.auto-mark {
+  font-size: 10px;
+  color: #898781;
+}
+
+.btn-reset {
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-reset:hover { background: #eceff1; }
+
+/* 読み上げ用。画面には出さないが、丸の意味を伝える。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------- 印刷 ---------------- */
+
+@media print {
+  body { background: #fff; }
+
+  .app-header,
+  .no-print { display: none !important; }
+
+  .ledger-page,
+  .bathing-page { padding: 0; max-width: none; }
+
+  .ledger-table,
+  .bathing-table,
+  .bathing-week { font-size: 10px; }
+
+  .ledger-table th,
+  .ledger-table td { padding: 2px 4px; }
+
+  /* 行の途中で改ページされると読めなくなる */
+  tr { break-inside: avoid; }
+
+  .table-scroll { overflow: visible; }
+}
+
+/* 入浴回数。足りていない行はすぐ気づけるようにする。 */
+.bathing-week .col-count {
+  width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bathing-week .col-count.is-short {
+  color: var(--color-conflict);
+  font-weight: 700;
+}
+
+/* ============================================================
+ * 問い合わせ・CMマスタ
+ * ============================================================ */
+
+.inquiry-page {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 1500px;
+}
+
+/* 絞り込み。GETで送ってURLに残すので、絞った状態のまま共有できる。 */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.filter-bar label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #52514e;
+  gap: 3px;
+}
+
+.filter-bar select,
+.filter-bar input {
+  padding: 4px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fff;
+}
+
+.filter-bar input[type="search"] { width: 140px; }
+
+.date-range {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #898781;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 一覧 */
+
+.inquiry-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.inquiry-table th,
+.inquiry-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  vertical-align: top;
+}
+
+.inquiry-table thead th {
+  font-size: 11px;
+  color: #52514e;
+  font-weight: 500;
+  border-bottom: 1px solid #c3c2b7;
+  white-space: nowrap;
+}
+
+.inquiry-table .nowrap { white-space: nowrap; }
+.inquiry-table .name { font-weight: 600; white-space: nowrap; }
+.inquiry-table .memo { color: #52514e; min-width: 160px; }
+.inquiry-table tbody tr:hover { background: #fafafa; }
+
+.inquiry-table .sub {
+  display: block;
+  font-size: 11px;
+  color: #898781;
+  font-weight: 400;
+}
+
+/* 対応状況。並べた順が進行順なので、先頭ほど目立たせる。 */
+
+.status {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  background: #eceff1;
+  color: #37474f;
+}
+
+.inquiry-table tr:has(.status) .status-0 {
+  background: #fff3e0;
+  color: #bf360c;
+  font-weight: 600;
+}
+
+.tag-new {
+  background: #ede7f6;
+  color: #4527a0;
+}
+
+/* 予約に変換済みの行は、もう触らなくてよいので落ち着かせる */
+.inquiry-table tr.is-converted { background: #f7f9f7; }
+.inquiry-table tr.is-converted .name { font-weight: 500; }
+
+.converted-link {
+  font-size: 11px;
+  color: #2e7d32;
+  text-decoration: none;
+  border: 1px solid #a5d6a7;
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+
+.converted-link:hover { background: #e8f5e9; }
+
+.actions-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.btn-convert {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid #1565c0;
+  border-radius: 3px;
+  background: #fff;
+  color: #1565c0;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.btn-convert:hover { background: #e3f2fd; }
+
+/* CMを選んだときに出る連絡先 */
+
+.cm-detail {
+  font-size: 12px;
+  color: #37474f;
+  margin: -6px 0 4px;
+  min-height: 1.2em;
+}
+
+.convert-summary {
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+#guest-name-label[hidden] { display: none; }
+
+.convert-unavailable {
+  font-size: 11px;
+  color: #898781;
+  white-space: nowrap;
+  padding: 2px 8px;
+}
+
+/* 施設名は全画面でホーム（予約表）へのリンク。
+   見出しとして読めることを優先し、リンクらしさはホバーで出す。 */
+.home-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-link:hover {
+  color: #1565c0;
+  text-decoration: underline;
+}
+
+/* 印刷時はリンクの下線を出さない */
+@media print {
+  .home-link { color: inherit; text-decoration: none; }
+}
+
+/* ============================================================
+ * 全画面共通のナビゲーション
+ * ============================================================ */
+
+.global-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.global-nav a {
+  padding: 5px 12px;
+  font-size: 13px;
+  color: #37474f;
+  text-decoration: none;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.global-nav a:hover { background: #eceff1; }
+
+/* 今どの画面にいるか。迷子にならないよう、現在地だけ塗る。 */
+.global-nav a.is-current {
+  background: #1565c0;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 用途のまとまり（受付 ／ 帳票・集計 ／ 台帳）を薄い区切りで示す */
+.nav-sep {
+  width: 1px;
+  height: 18px;
+  background: #ddd;
+  margin: 0 6px;
+}
+
+/* 画面ごとの操作バー。共通ナビとは別の行に置いて、
+   「画面を移る」と「この画面で操作する」を混ぜない。 */
+.page-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 4px 16px;
+  background: #fff;
+  border-bottom: 1px solid #ddd;
+  position: sticky;
+  /* app-header の高さぶん下げる。app-header の padding を変えたら合わせる。 */
+  top: 41px;
+  z-index: 29;
+}
+
+.page-bar:empty { display: none; }
+
+/* ---------------- 今日の状況（ダッシュボード /today） ----------------
+   予約表を「表そのもの」に振り切ったぶん、今日の人数・稼働率・入退所の顔ぶれと
+   いった"今日の把握"はこの画面に集約する。 */
+
+.today-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.today-date {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* 予約表は一番触る画面なので、この画面から大きく1タップで開けるようにする */
+.today-open-grid {
+  margin-left: auto;
+  padding: 6px 16px;
+  background: #1565c0;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.today-open-grid:hover { background: #0d47a1; }
+
+.today-page {
+  padding: 16px;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 今日の人数の並び。予約表から移設した .daily-stats をそのまま使うが、
+   単独で置くのでカードとして囲って読みやすくする。 */
+.today-page .daily-stats {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.today-page .stat-value { font-size: 24px; }
+.today-page .stat-rate .stat-value { font-size: 30px; }
+
+/* 今日の入所・退所の顔ぶれ。左右に並べ、狭い画面では縦積みにする。 */
+.today-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 700px) {
+  .today-lists { grid-template-columns: 1fr; }
+}
+
+.today-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.today-card h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-card h2 .count {
+  background: #eceff1;
+  color: #37474f;
+  border-radius: 10px;
+  padding: 1px 9px;
+  font-size: 12px;
+}
+
+.today-card ul { list-style: none; margin: 0; padding: 0; }
+
+.today-card li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+.today-card li:first-child { border-top: none; }
+
+.today-card .period { color: #898781; font-size: 12px; margin-left: auto; }
+.today-card .empty-note { color: #898781; font-size: 13px; justify-content: flex-start; }
+
+/* 今日の業務で開きがちな画面への近道。予約表は作業の中心なので大きく出す。 */
+.today-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.today-link-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #37474f;
+}
+.today-link-card:hover { border-color: #90caf9; background: #f5faff; }
+
+.today-link-card.is-primary {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+  grid-column: 1 / -1;
+}
+.today-link-card.is-primary:hover { background: #0d47a1; }
+
+.today-link-title { font-size: 16px; font-weight: 600; }
+.today-link-sub { font-size: 12px; opacity: 0.8; }
+
+/* ---------------- 印刷（部屋票の印刷） ----------------
+   画面表示はそのまま。印刷／プレビューのときだけグリッドを全展開し、
+   操作系（ナビ・集計・部屋未定パネル・ボタンなど）を隠して、部屋票の
+   全体が用紙に出るようにする。用紙は横向き。 */
+@media print {
+  /* A4横が一番タテがタイト。余白を詰めて、40床＋集計＋凡例が縦1枚に
+     収まる高さを稼ぐ。プリンタ側の余白設定でも変わるので、印刷ダイアログの
+     余白は「最小／なし」推奨。 */
+  @page { size: landscape; margin: 6mm; }
+
+  /* 操作系・画面固有のUIは印刷しない */
+  .app-header, .global-nav, .nav-sep,
+  .month-nav a, .no-print,
+  .daily-stats, .conflict-banner,
+  .unassigned, .col-resizer,
+  .modal, .modal-backdrop { display: none !important; }
+
+  /* 見出し部は隠さず、月タイトルと凡例だけ残す（sticky等は解除して普通に流す）。 */
+  .page-bar {
+    display: block !important;
+    position: static !important;
+    border: none;
+    padding: 0 0 2px;
+  }
+  .month-nav { display: block; margin: 0; }
+  .current-month { font-size: 13px; font-weight: 700; }
+
+  /* グリッドを全展開。JSが付けた inline の max-height を !important で上書きする。 */
+  main { display: block; }
+  .layout {
+    display: block !important;
+    padding: 0 !important;
+  }
+  .grid-wrap {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+  }
+
+  /* 見出し・部屋列・下部集計の位置固定は印刷では不要。すべて解除する。
+     日付ヘッダーだけは、ページをまたぐとき各ページ先頭で繰り返す。
+     下部集計（tfoot）は繰り返すと紛らわしいので、通常の行として1回だけ出す。 */
+  .grid thead { display: table-header-group; }
+  .grid thead th, .corner, .room-head { position: static !important; }
+  .day-totals { display: table-row-group; }
+  .day-totals th, .day-totals td {
+    position: static !important;
+    bottom: auto !important;
+  }
+  .grid tr { break-inside: avoid; }
+
+  /* 帯の色を必ず印刷する（既定では背景色を飛ばすブラウザが多い）。 */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 40床＋ヘッダー＋下部集計＋凡例を A4横1枚に収めるため、印刷時は行を
+     かなり詰める。マスの幅は1か月ぶんが横に収まる30pxに、高さは1枚に
+     収まるよう14pxまで下げる（画面表示は従来のまま。これは印刷のときだけ）。 */
+  .cell, .grid thead th { width: 30px !important; min-width: 30px !important; }
+  .cell, .room-head { height: 14px !important; }
+  .cell-label { font-size: 9px; }
+  .grid thead th { height: 12px !important; font-size: 8px; padding: 0; }
+  .room-head { font-size: 9px; }
+  .day-totals th, .day-totals td { height: 12px !important; font-size: 8px; }
+
+  /* 凡例は画面では <details> で畳んでいるが、部屋票には色の意味を残したい。
+     閉じたままでも中身を出すよう、たたみ込みを解除して開いた状態にする
+     （新しいChromiumの ::details-content と、旧来の子要素 display 上書きの両対応）。 */
+  .legend-toggle { display: block !important; }
+  .legend-toggle > summary { display: none !important; }
+  .legend-toggle::details-content { content-visibility: visible !important; }
+  .legend-toggle > .legend { display: flex !important; }
+
+  /* 凡例は1行に薄く小さく。高さを食わないよう余白も詰める。 */
+  .legend { margin: 2px 0 3px; gap: 6px 10px; font-size: 9px; }
+  .legend .swatch { width: 10px; height: 10px; }
+}

@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}{{ grid.year }}年{{ grid.month }}月 予約表 - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav">
+  <a href="/grid?year={{ grid.prev_month[0] }}&month={{ grid.prev_month[1] }}">← 前月</a>
+  <span class="current-month">{{ grid.year }}年 {{ grid.month }}月</span>
+  <a href="/grid?year={{ grid.next_month[0] }}&month={{ grid.next_month[1] }}">次月 →</a>
+  <a class="today-link" href="/grid?year={{ today.year }}&month={{ today.month }}">今月</a>
+  {# 部屋票の印刷。押すとブラウザの印刷（プレビュー）が開く。印刷時は
+     @media print でグリッドを全展開し、操作系を隠す（style.css）。 #}
+  <button type="button" class="btn-print no-print" onclick="window.print()">🖨 印刷</button>
+
+  {# 予約表は「表そのものを一望する」画面に振り切ったので、色の意味（凡例）は
+     普段は畳んでおき、必要なときだけ開く。<details> なのでJSは要らない。
+     慣れないうち・新人スタッフのために消さずに手元へ残す。 #}
+  <details class="legend-toggle">
+    <summary>凡例</summary>
+    <div class="legend">
+      <span class="legend-item"><i class="swatch swatch-checkin"></i>入所日</span>
+      <span class="legend-item"><i class="swatch swatch-checkout"></i>退所日</span>
+      <span class="legend-item"><i class="swatch swatch-stay"></i>宿泊中（泊り）</span>
+      <span class="legend-item"><span class="name-gender gender-male">男</span><span class="name-gender gender-female">女</span>性別（氏名の横）</span>
+      <span class="legend-item"><i class="swatch swatch-turnover"></i>入れ替わり</span>
+      <span class="legend-item"><i class="swatch swatch-daytrip"></i>日帰り</span>
+      <span class="legend-item"><i class="swatch swatch-tentative"></i>仮予約</span>
+      <span class="legend-item"><i class="swatch swatch-conflict"></i>重複</span>
+      {# 男女同室の警告は、有効にしている施設でだけ凡例に出す #}
+      {% if config.warnings.mixed_gender_in_shared_room %}
+        <span class="legend-item"><i class="swatch swatch-mixed-gender"></i>男女同室</span>
+      {% endif %}
+    </div>
+  </details>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% if grid.conflicts %}
+{# 警告の見出し（件数つき）は常に見せ、場所を食う一覧は畳んでおく。<details>
+   なのでJS不要。件数を見て気づき、直したいときだけ開いて該当マスへ飛べる。 #}
+<details class="conflict-banner">
+  <summary><strong>⚠ 部屋が重複しています（{{ grid.conflicts | length }}件）</strong></summary>
+  {# 各行を押すと、その重複のマスまでグリッドを送って光らせる（UI改善仕様①）。
+     直すのは今まで通り人がやるので、ここでは「見えるようにする」だけ。 #}
+  <ul>
+    {% for c in grid.conflicts %}
+      <li>
+        <button type="button" class="conflict-jump"
+                data-bed="{{ c.bed_id }}"
+                data-day="{{ c.day.isoformat() }}">
+          {{ c.bed_id }}　{{ c.reservation.guest_name }}（{{ c.reservation.check_in.strftime('%m/%d') }} 〜 {{ c.reservation.check_out.strftime('%m/%d') }}）
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+{% if grid.mixed_gender %}
+<details class="conflict-banner mixed-gender-banner">
+  <summary><strong>準個室に男女が同室になっています（{{ grid.mixed_gender | length }}件）</strong></summary>
+  <ul>
+    {% for pair in grid.mixed_gender %}
+      <li>
+        {{ pair.room_id }}　{{ pair.a.guest_name }}（{{ pair.a.gender.value }}）と
+        {{ pair.b.guest_name }}（{{ pair.b.gender.value }}）
+        {{ pair.start.strftime('%m/%d') }} 〜 {{ pair.end.strftime('%m/%d') }}
+      </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+<div class="layout">
+
+  <section class="grid-wrap">
+    {# ドラッグで範囲を選んで予約を入れる。操作は static/grid.js 側。 #}
+    <table class="grid">
+      <thead>
+        <tr>
+          <th class="corner" rowspan="2">部屋</th>
+          {% for day in grid.days %}
+            <th class="day-head {% if day == today %}is-today{% endif %} {% if day.weekday() == 5 %}is-sat{% elif day.weekday() == 6 %}is-sun{% endif %}">
+              {{ day.day }}
+            </th>
+          {% endfor %}
+        </tr>
+        <tr>
+          {% for day in grid.days %}
+            <th class="weekday-head {% if day == today %}is-today{% endif %} {% if day.weekday() == 5 %}is-sat{% elif day.weekday() == 6 %}is-sun{% endif %}">
+              {{ weekday_labels[day.weekday()] }}
+            </th>
+          {% endfor %}
+        </tr>
+      </thead>
+
+      <tbody>
+        {% set ns = namespace(prev_wing='') %}
+        {% for row in grid.rows %}
+          {# 棟が変わる行に線を入れて、棟ごとの区切りを見せる #}
+          {% set is_wing_start = row.bed.wing != ns.prev_wing %}
+          {% set ns.prev_wing = row.bed.wing %}
+
+          {# 段があるベッドは、段数ぶん行を高くして各段をフル高さで見せる。
+             行の高さの基準は24px（実機確認で44→34→24pxまで詰めた。CSSの
+             .cell / .room-head の height と必ず揃える）。1か月ぶんを1画面で
+             一望できるよう低くした。横幅は押しやすさのため38pxのまま（UI改善⑥）。 #}
+          {% set row_h = 24 * row.lane_count %}
+          <tr class="{% if is_wing_start %}wing-start{% endif %}"
+              style="height:{{ row_h }}px">
+            <th class="room-head {% if row.bed.is_shared %}is-shared{% endif %}"
+                style="height:{{ row_h }}px"
+                title="{{ '準個室' if row.bed.is_shared else '個室' }}">
+              {{ row.bed.id }}
+            </th>
+
+            {% for cell in row.cells %}
+              {# 通常は段（bar）が1本でマスいっぱい。重なっている日だけ段が
+                 増え、上下にずれて両方が見える（UI改善仕様）。 #}
+              <td
+                class="cell
+                       {% if cell.is_conflict %}is-conflict{% endif %}
+                       {% if cell.is_mixed_gender %}is-mixed-gender{% endif %}"
+                style="height:{{ row_h }}px"
+                data-bed="{{ row.bed.id }}"
+                data-day="{{ cell.day.isoformat() }}"
+                {% if cell.reservations %}
+                  title="{% for r in cell.reservations %}{{ r.guest_name }}（{{ r.check_in }} 〜 {{ r.check_out }}{% if r.is_tentative %} / 仮{% endif %}）{% if not loop.last %} ／ {% endif %}{% endfor %}{% if cell.is_conflict %} ⚠ 重複{% endif %}{% if cell.is_mixed_gender %} ⚠ 男女同室{% endif %}"
+                {% endif %}
+              >{% for bar in cell.bars %}<div
+                  class="bar
+                         kind-{{ bar.kind }}
+                         {% if bar.gender %}gender-{{ 'male' if bar.gender.value == '男性' else 'female' }}{% endif %}
+                         {% if bar.is_tentative %}is-tentative{% endif %}
+                         {% if bar.continues_right %}continues-right{% endif %}
+                         {% if bar.continues_left %}continues-left{% endif %}"
+                  style="top:{{ bar.top_percent }}%;height:{{ bar.height_percent }}%"
+                  {% if bar.primary %}data-reservation="{{ bar.primary.id }}"{% endif %}
+                >{% if bar.label %}<span class="cell-label">{% if bar.primary %}<span class="name-gender gender-{{ 'male' if bar.primary.gender.value == '男性' else 'female' }}">{{ '男' if bar.primary.gender.value == '男性' else '女' }}</span>{% endif %}{{ bar.label }}</span>{% endif %}</div>{% endfor %}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+
+      {# グリッド下の日ごと集計。列（日付）は上の日付ヘッダーと同じ順・
+         同じ日数なので、そのまま横に並ぶ。縦スクロールしても下に貼り付く
+         （style.css の position:sticky）。0 の日は数字を出さず、入退所が
+         あった日だけ数字が浮くようにして見やすくする。 #}
+      <tfoot class="day-totals">
+        <tr class="totals-total">
+          <th class="totals-label">合計</th>
+          {% for dc in day_counts %}<td class="{% if dc.day == today %}is-today{% endif %}">{{ dc.total or '' }}</td>{% endfor %}
+        </tr>
+        <tr>
+          <th class="totals-label">入所</th>
+          {% for dc in day_counts %}<td class="{% if dc.day == today %}is-today{% endif %}">{{ dc.check_ins or '' }}</td>{% endfor %}
+        </tr>
+        <tr>
+          <th class="totals-label">退所</th>
+          {% for dc in day_counts %}<td class="{% if dc.day == today %}is-today{% endif %}">{{ dc.check_outs or '' }}</td>{% endfor %}
+        </tr>
+        <tr>
+          <th class="totals-label">泊り</th>
+          {% for dc in day_counts %}<td class="{% if dc.day == today %}is-today{% endif %}">{{ dc.overnight or '' }}</td>{% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </section>
+
+  {# グリッドと部屋未定パネルの境目。左右にドラッグして幅を変えられる。
+     ダブルクリックで既定の幅に戻す（JSは static/grid.js）。 #}
+  <div class="col-resizer" title="ドラッグで幅を調整（ダブルクリックで戻す）"></div>
+
+  {# 部屋が決まっていない予約。ここから部屋を割り当てる（仕様④） #}
+  <aside class="unassigned">
+    {# 畳んだときの細い縦タブ。押すと開く。件数は開いているときと同じものを出す。 #}
+    <button type="button" class="unassigned-tab" title="部屋未定パネルを開く">
+      部屋未定 <span class="count {% if has_urgent %}count-urgent{% endif %}">{{ unassigned | length }}</span>
+    </button>
+
+    <div class="unassigned-body">
+    <h2>部屋未定
+      <span class="count {% if has_urgent %}count-urgent{% endif %}">{{ unassigned | length }}</span>
+      {# 表を広く使いたいときは、このパネルを右へたたむ（JSは static/grid.js）。 #}
+      <button type="button" class="panel-collapse" title="部屋未定パネルをたたむ">»</button>
+    </h2>
+    <button type="button" class="btn-new-unassigned">＋ 部屋未定で新規</button>
+
+    <ul class="unassigned-list">
+      {% for r in unassigned %}
+        {# 入所日が近いほど目立たせる（UI改善⑤）。緊急度はサーバ側で算出。 #}
+        {% set level = urgency[r.id] %}
+        <li class="unassigned-item urgency-{{ level }}" data-reservation="{{ r.id }}">
+          {# バッジは常に「名前 → ステータス（仮予約）→ 性別」の順に並べる。
+             仮予約は性別と混同しないよう、色も形も別系統にする（UI改善④）。 #}
+          <div class="name">
+            {{ r.guest_name }}
+            {% if level == 'urgent' %}<span class="tag tag-status tag-urgent">まもなく</span>{% endif %}
+            {% if r.is_tentative %}<span class="tag tag-status tag-tentative">◷ 仮予約</span>{% endif %}
+            <span class="tag tag-gender tag-{{ 'male' if r.gender.value == '男性' else 'female' }}">{{ r.gender.value }}</span>
+          </div>
+          <div class="period">{{ r.check_in.strftime('%m/%d') }} 〜 {{ r.check_out.strftime('%m/%d') }}（{{ r.nights }}泊）</div>
+          <div class="actions">
+            {# 埋まっている部屋も一覧には残し、選べなくして理由を出す（UI改善仕様③）。
+               消してしまうと、その部屋が無いのか埋まっているのか分からなくなる。 #}
+            {% set busy = occupied_beds[r.id] %}
+            <select class="assign-select">
+              <option value="">部屋を選ぶ…</option>
+              {% for bed in config.beds %}
+                <option value="{{ bed.id }}" {% if bed.id in busy %}disabled{% endif %}>
+                  {{- bed.id -}}
+                  {%- if bed.id in busy and bed.is_shared %}（空きなし・準個室）
+                  {%- elif bed.id in busy %}（空きなし）
+                  {%- elif bed.is_shared %}（準個室）
+                  {%- endif -%}
+                </option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn-edit">編集</button>
+          </div>
+        </li>
+      {% else %}
+        <li class="empty-note">部屋未定の予約はありません</li>
+      {% endfor %}
+    </ul>
+    </div>
+  </aside>
+
+</div>
+
+{# 予約の入力・編集フォーム。ドラッグを終えたときと、既存の予約を押したときに開く #}
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal">
+    <h2 class="modal-title">予約を追加</h2>
+
+    <form id="reservation-form">
+      <input type="hidden" name="reservation_id">
+      <input type="hidden" name="bed_id">
+
+      {# 名前を毎回手入力すると表記ゆれが起きて当日台帳・入浴表と紐付かなく
+         なるため、利用者マスタから選ぶ形にしている（user_master_spec.md）。
+         ただし選ぶだけだと、マスタに未登録の人の予約が入れられず現場が
+         止まるので、その場で登録できる導線も置いてある。 #}
+      <label>
+        利用者
+        <select name="user_master_id" id="user-select" required>
+          <option value="">選んでください…</option>
+          {% for u in users %}
+            <option value="{{ u.id }}"
+                    data-gender="{{ u.gender.value }}"
+                    data-fixed-bed="{{ u.fixed_bed_id or '' }}">{{ u.name }}（{{ u.gender.value }}）</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <p class="new-user-line">
+        マスタにいない方は
+        <a href="/users" target="_blank" rel="noopener">利用者マスタ</a>
+        で登録してください
+      </p>
+
+      <div class="row">
+        <label>
+          入所日
+          <input type="date" name="check_in" required>
+        </label>
+        <label>
+          退所日
+          <input type="date" name="check_out" required>
+        </label>
+      </div>
+
+      <p class="nights-note" id="nights-note"></p>
+
+      <label class="inline">
+        <input type="checkbox" name="is_tentative"> 仮予約
+      </label>
+
+      <p class="bed-note" id="bed-note"></p>
+      <p class="form-error" id="form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="btn-delete" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-cancel" id="btn-cancel">キャンセル</button>
+        <button type="submit" class="btn-save">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/grid.js?v={{ static_v('grid.js') }}"></script>
+{% endblock %}

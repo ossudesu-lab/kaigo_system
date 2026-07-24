@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}今日の状況 - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<div class="today-head">
+  <span class="today-date">
+    {{ today.year }}年 {{ today.month }}月{{ today.day }}日（{{ weekday_labels[today.weekday()] }}）の状況
+  </span>
+  {# 予約表は一番触る画面なので、この画面からは大きく1タップで開けるようにする #}
+  <a class="today-open-grid" href="/grid?year={{ today.year }}&month={{ today.month }}">予約表を開く →</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="today-page">
+
+  {# 今日の人数（aggregation_spec.md ①）。予約データから計算で出しているだけで、
+     入力するものは何もない。予約表を「表そのもの」に振り切ったぶん、この
+     "今日の把握"はここに集約した。 #}
+  <div class="daily-stats">
+    <div class="stat">
+      <span class="stat-label">今日の合計利用者</span>
+      <span class="stat-value">{{ today_count.total }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">泊り</span>
+      <span class="stat-value">{{ today_count.overnight }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">入所</span>
+      <span class="stat-value">{{ today_count.check_ins }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">退所</span>
+      <span class="stat-value">{{ today_count.check_outs }}</span>
+    </div>
+    {# 仮予約は集計に入れていないので、件数だけ別に見せる #}
+    {% if today_count.tentative and not config.aggregation.include_tentative %}
+    <div class="stat stat-tentative">
+      <span class="stat-label">仮予約（集計外）</span>
+      <span class="stat-value">{{ today_count.tentative }}</span>
+    </div>
+    {% endif %}
+
+    {# 稼働率（UI改善⑧）。何日から何日までの平均かをラベルで明示し、
+       分母（定員×日数）も添える。計算方法はホバーで説明が出る。 #}
+    <div class="stat stat-rate"
+         title="稼働率＝延べ利用者数 ÷（定員 × 日数）。1日ごとの利用者数を期間ぶん合計し、満床が続いた場合の最大で割った平均です。仮予約は含みません。">
+      <span class="stat-label">
+        {{ today.month }}月1〜{{ summary.days | length }}日の稼働率
+      </span>
+      <span class="stat-value">{{ '%.1f' | format(summary.occupancy_percent) }}<small>%</small></span>
+      <span class="stat-sub">
+        延べ{{ summary.person_days }}人 ÷（定員{{ summary.capacity }}名 × {{ summary.days | length }}日）
+      </span>
+    </div>
+  </div>
+
+  {# 今日の入所・退所の顔ぶれ。「今日のレポート」らしさとして、数字だけでなく
+     誰が入る／出るのかを一目で分かるようにする。名前は利用者マスタから引くので
+     表記ゆれは起きない（当日台帳・入浴表と同じ紐付け）。 #}
+  <div class="today-lists">
+    <section class="today-card">
+      <h2>本日の入所 <span class="count">{{ check_ins | length }}</span></h2>
+      <ul>
+        {% for r in check_ins %}
+          <li>
+            <span class="tag tag-gender tag-{{ 'male' if r.gender.value == '男性' else 'female' }}">{{ r.gender.value }}</span>
+            {{ r.guest_name }}
+            {% if r.is_tentative %}<span class="tag tag-status tag-tentative">◷ 仮予約</span>{% endif %}
+            <span class="period">〜 {{ r.check_out.strftime('%m/%d') }}（{{ r.nights }}泊）</span>
+          </li>
+        {% else %}
+          <li class="empty-note">本日の入所はありません</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="today-card">
+      <h2>本日の退所 <span class="count">{{ check_outs | length }}</span></h2>
+      <ul>
+        {% for r in check_outs %}
+          <li>
+            <span class="tag tag-gender tag-{{ 'male' if r.gender.value == '男性' else 'female' }}">{{ r.gender.value }}</span>
+            {{ r.guest_name }}
+            {% if r.is_tentative %}<span class="tag tag-status tag-tentative">◷ 仮予約</span>{% endif %}
+            <span class="period">{{ r.check_in.strftime('%m/%d') }} 入所</span>
+          </li>
+        {% else %}
+          <li class="empty-note">本日の退所はありません</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  {# 今日の業務で開きがちな画面への近道。予約表は作業の中心なので大きく出す。 #}
+  <nav class="today-links">
+    <a class="today-link-card is-primary" href="/grid?year={{ today.year }}&month={{ today.month }}">
+      <span class="today-link-title">予約表</span>
+      <span class="today-link-sub">1か月の部屋割りを一望・編集</span>
+    </a>
+    <a class="today-link-card" href="/ledger?day={{ today.isoformat() }}">
+      <span class="today-link-title">当日台帳</span>
+      <span class="today-link-sub">今日いる人の一覧</span>
+    </a>
+    <a class="today-link-card" href="/bathing?day={{ today.isoformat() }}">
+      <span class="today-link-title">入浴表</span>
+      <span class="today-link-sub">今日の入浴予定</span>
+    </a>
+    <a class="today-link-card" href="/report?year={{ today.year }}&month={{ today.month }}">
+      <span class="today-link-title">月次レポート</span>
+      <span class="today-link-sub">今月の推移グラフ</span>
+    </a>
+  </nav>
+
+</div>
+{% endblock %}

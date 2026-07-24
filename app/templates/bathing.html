@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}入浴表 {{ day.strftime('%m/%d') }} - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav no-print">
+  <a href="/bathing?day={{ prev_day }}&span={{ span }}">← {{ '前週' if is_week else '前日' }}</a>
+  <span class="current-month">
+    {% if is_week %}
+      {{ day.strftime('%m/%d') }} 〜 {{ week_days[-1].strftime('%m/%d') }}
+    {% else %}
+      {{ day.strftime('%Y年%m月%d日') }}（{{ weekday_labels[day.weekday()] }}）
+    {% endif %}
+  </span>
+  <a href="/bathing?day={{ next_day }}&span={{ span }}">{{ '翌週' if is_week else '翌日' }} →</a>
+  <a class="today-link" href="/bathing?day={{ today }}&span={{ span }}">今日</a>
+</nav>
+
+<div class="span-switch no-print">
+  <a class="{% if not is_week %}is-active{% endif %}" href="/bathing?day={{ day }}&span=day">当日分</a>
+  <a class="{% if is_week %}is-active{% endif %}" href="/bathing?day={{ day }}&span=week">1週間分</a>
+</div>
+
+<div class="report-actions no-print">
+  <a class="btn-csv" href="/api/reports/bathing.csv?day={{ day }}&span={{ span }}">CSV出力</a>
+  <button type="button" class="btn-print" onclick="window.print()">印刷</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="bathing-page">
+
+{% if not is_week %}
+  {# ---------------- 当日分 ---------------- #}
+  {% set sheet = sheets[0] %}
+  <h2 class="print-title">
+    入浴表　{{ sheet.day.strftime('%Y年%m月%d日') }}（{{ weekday_labels[sheet.day.weekday()] }}）
+    <span class="print-count">{{ sheet.count }}名</span>
+  </h2>
+
+  {% if sheet.rows %}
+  <table class="bathing-table">
+    <thead>
+      <tr>
+        <th class="col-room">部屋</th>
+        <th class="col-name">名前</th>
+        <th class="col-type">入浴種別</th>
+        <th class="col-check">確認</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in sheet.rows %}
+        <tr>
+          <td class="col-room">{{ row.attendee.bed_id or '未定' }}</td>
+          <td class="col-name">
+            {{ row.attendee.name }}
+            {% if row.attendee.is_tentative %}<span class="mark mark-tentative">仮</span>{% endif %}
+          </td>
+          <td class="col-type">{{ row.attendee.bathing_type or '—' }}</td>
+          {# 紙に印刷してチェックを入れる欄 #}
+          <td class="col-check"></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="panel empty-state">この日に入浴予定の方はいません。</div>
+  {% endif %}
+
+{% else %}
+  {# ---------------- 1週間分 ---------------- #}
+  <h2 class="print-title">
+    入浴表　{{ day.strftime('%Y年%m月%d日') }} 〜 {{ week_days[-1].strftime('%m月%d日') }}
+  </h2>
+
+  <p class="bathing-hint no-print">
+    丸をクリックすると入浴日を動かせます。動かした予約は自動計算から外れ、以降は手動の内容が使われます。
+    <strong>戻す</strong>を押すと自動の候補に戻ります。
+  </p>
+
+  {% if week_attendees %}
+  <div class="table-scroll">
+    <table class="bathing-week">
+      <thead>
+        <tr>
+          <th class="col-room">部屋</th>
+          <th class="col-name">名前</th>
+          <th class="col-type">入浴種別</th>
+          <th class="col-count" title="この滞在での入浴日数 ／ ルール上の回数">回数</th>
+          {% for d in week_days %}
+            <th class="col-day {% if d == today %}is-today{% endif %} {% if d.weekday() == 5 %}is-sat{% elif d.weekday() == 6 %}is-sun{% endif %}">
+              {{ d.day }}<span class="wd">{{ weekday_labels[d.weekday()] }}</span>
+            </th>
+          {% endfor %}
+          <th class="col-manual"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in week_attendees %}
+          <tr data-reservation="{{ a.reservation.id }}"
+              class="{% if a.reservation.bathing_is_manual %}is-manual{% endif %}">
+            <td class="col-room">{{ a.bed_id or '未定' }}</td>
+            <td class="col-name">
+              {{ a.name }}
+              {% if a.is_tentative %}<span class="mark mark-tentative">仮</span>{% endif %}
+            </td>
+            <td class="col-type">{{ a.bathing_type or '—' }}</td>
+            {# 滞在全体での回数。今見えている1週間の中の数ではない。 #}
+            <td class="col-count {% if a.is_bath_short %}is-short{% endif %}"
+                title="{{ a.reservation.check_in.strftime('%m/%d') }}〜{{ a.reservation.check_out.strftime('%m/%d') }}（{{ a.reservation.nights }}泊）の入浴日数">
+              {{ a.bathing_days | length }}/{{ a.expected_baths }}
+            </td>
+
+            {% for d in week_days %}
+              {% set inside = a.reservation.covers(d) %}
+              <td class="col-day {% if not inside %}is-outside{% endif %} {% if d == today %}is-today{% endif %}">
+                {% if inside %}
+                  <button type="button"
+                          class="bath-toggle {% if a.bathes_on(d) %}is-on{% endif %}"
+                          data-day="{{ d }}"
+                          aria-pressed="{{ 'true' if a.bathes_on(d) else 'false' }}"
+                          title="{{ a.name }} {{ d.strftime('%m/%d') }}">
+                    <span aria-hidden="true">{{ '●' if a.bathes_on(d) else '' }}</span>
+                    <span class="sr-only">{{ '入浴あり' if a.bathes_on(d) else '入浴なし' }}</span>
+                  </button>
+                {% endif %}
+              </td>
+            {% endfor %}
+
+            <td class="col-manual">
+              {% if a.reservation.bathing_is_manual %}
+                <button type="button" class="btn-reset" title="自動の候補に戻す">戻す</button>
+              {% else %}
+                <span class="auto-mark" title="ルールから自動で出しています">自動</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel empty-state">この週は利用者がいません。</div>
+  {% endif %}
+{% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if is_week %}<script src="/static/bathing.js?v={{ static_v('bathing.js') }}"></script>{% endif %}
+{% endblock %}

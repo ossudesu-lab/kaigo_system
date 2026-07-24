@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}{{ year }}年{{ month }}月 月次レポート - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav">
+  <a href="/report?year={{ prev_month[0] }}&month={{ prev_month[1] }}">← 前月</a>
+  <span class="current-month">{{ year }}年 {{ month }}月</span>
+  <a href="/report?year={{ next_month[0] }}&month={{ next_month[1] }}">次月 →</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="report">
+
+  {# この画面が最初に伝えるべき数字は稼働率ひとつ。大きく1つだけ置く。 #}
+  <section class="panel hero-panel">
+    <div class="hero">
+      <span class="hero-label">{{ month }}月の稼働率</span>
+      <span class="hero-value">{{ '%.1f' | format(summary.occupancy_percent) }}<small>%</small></span>
+      <span class="hero-note">
+        延べ {{ summary.person_days }}人日 ÷（定員 {{ summary.capacity }}人 × {{ summary.days | length }}日）
+        {% if not config.aggregation.include_tentative %}
+          <br>仮予約は含めていません
+        {% endif %}
+      </span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile">
+        <span class="tile-label">延べ利用者数</span>
+        <span class="tile-value">{{ summary.person_days }}<small>人日</small></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">1日平均</span>
+        <span class="tile-value">{{ '%.1f' | format(summary.person_days / summary.days | length) }}<small>人</small></span>
+      </div>
+      {% if summary.peak %}
+      <div class="tile">
+        <span class="tile-label">最多利用日</span>
+        <span class="tile-value">{{ summary.peak.total }}<small>人</small></span>
+        <span class="tile-sub">{{ summary.peak.day.strftime('%m/%d') }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# グラフ1：その日いた人の内訳。
+     合計利用者数 ＝ 泊り人数 ＋ 退所人数 が定義どおり成り立つので、
+     積み上げにすると3つの数字が1つのグラフで同時に読める。 #}
+  <section class="panel">
+    <h2 class="panel-title">日ごとの利用者数</h2>
+    <p class="panel-note">棒の高さの合計が、その日の合計利用者数です。</p>
+
+    <div class="legend chart-legend">
+      <span class="legend-item"><i class="key key-overnight"></i>泊り人数</span>
+      <span class="legend-item"><i class="key key-checkout"></i>退所人数</span>
+      <span class="legend-item"><i class="key key-capacity"></i>定員（{{ config.capacity }}人）</span>
+    </div>
+
+    <div class="chart">
+      <div class="y-axis">
+        {% for t in ticks | reverse %}
+          <span class="tick" style="bottom: {{ (t / plot_max * 100) }}%">{{ t }}</span>
+        {% endfor %}
+      </div>
+
+      <div class="plot">
+        {% for t in ticks %}
+          <div class="gridline" style="bottom: {{ (t / plot_max * 100) }}%"></div>
+        {% endfor %}
+        <div class="capacity-line" style="bottom: {{ (config.capacity / plot_max * 100) }}%"></div>
+
+        {% for d in summary.days %}
+          <div class="col {% if d.day == today %}is-today{% endif %}" tabindex="0">
+            <div class="stack">
+              {# 下から 泊り → 退所 の順に積む（column-reverse） #}
+              <div class="seg seg-overnight {% if d.check_outs == 0 %}is-top{% endif %}"
+                   style="height: {{ (d.overnight / plot_max * 100) }}%"></div>
+              {# 2つの帯が両方あるときだけ、間に余白を入れて切り分ける #}
+              <div class="seg seg-checkout is-top {% if d.overnight and d.check_outs %}has-gap{% endif %}"
+                   style="height: {{ (d.check_outs / plot_max * 100) }}%"></div>
+            </div>
+
+            <div class="tip">
+              <strong>{{ d.day.strftime('%m/%d') }}（{{ weekday_labels[d.day.weekday()] }}）</strong>
+              合計 {{ d.total }}人／泊り {{ d.overnight }}人／退所 {{ d.check_outs }}人／入所 {{ d.check_ins }}人
+              {% if d.tentative %}<br>仮予約 {{ d.tentative }}件{% if not config.aggregation.include_tentative %}（上の数には未算入）{% endif %}{% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="x-axis">
+      {% for d in summary.days %}
+        <span class="x-tick {% if d.day == today %}is-today{% endif %} {% if d.day.weekday() == 5 %}is-sat{% elif d.day.weekday() == 6 %}is-sun{% endif %}">{{ d.day.day }}</span>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# グラフ2：入所人数。1系列だけなので凡例は置かない（見出しが何のグラフか言っている）。 #}
+  <section class="panel">
+    <h2 class="panel-title">日ごとの入所人数</h2>
+    <p class="panel-note">利用者数とは桁が違うため、目盛りを分けています。</p>
+
+    <div class="chart chart-short">
+      <div class="y-axis">
+        {% for t in checkin_ticks %}
+          <span class="tick" style="bottom: {{ (t / checkin_plot_max * 100) }}%">{{ t }}</span>
+        {% endfor %}
+      </div>
+
+      <div class="plot">
+        {% for t in checkin_ticks %}
+          <div class="gridline" style="bottom: {{ (t / checkin_plot_max * 100) }}%"></div>
+        {% endfor %}
+
+        {% for d in summary.days %}
+          <div class="col {% if d.day == today %}is-today{% endif %}" tabindex="0">
+            <div class="stack">
+              <div class="seg seg-checkin is-top"
+                   style="height: {{ (d.check_ins / checkin_plot_max * 100) }}%"></div>
+            </div>
+            <div class="tip">
+              <strong>{{ d.day.strftime('%m/%d') }}（{{ weekday_labels[d.day.weekday()] }}）</strong>
+              入所 {{ d.check_ins }}人
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="x-axis">
+      {% for d in summary.days %}
+        <span class="x-tick {% if d.day == today %}is-today{% endif %} {% if d.day.weekday() == 5 %}is-sat{% elif d.day.weekday() == 6 %}is-sun{% endif %}">{{ d.day.day }}</span>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# 一覧。グラフで読み取れない正確な数字はここで見る。
+     色が読み取れない場合の代わりにもなる。 #}
+  <section class="panel">
+    <h2 class="panel-title">日ごとの一覧</h2>
+
+    <div class="table-scroll">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>曜日</th>
+            {# 数字の列は見出しも右揃えにする。左揃えのままだと見出しと
+               数字が横にずれて、どの列の数字か目で追えなくなる。 #}
+            <th class="num">入所</th>
+            <th class="num">退所</th>
+            <th class="num">合計利用者</th>
+            <th class="num">泊り</th>
+            <th class="num">{% if config.aggregation.include_tentative %}うち仮予約{% else %}仮予約（集計外）{% endif %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in summary.days %}
+            <tr class="{% if d.day == today %}is-today{% endif %}">
+              <td>{{ d.day.strftime('%m/%d') }}</td>
+              <td class="{% if d.day.weekday() == 5 %}is-sat{% elif d.day.weekday() == 6 %}is-sun{% endif %}">
+                {{ weekday_labels[d.day.weekday()] }}
+              </td>
+              <td class="num">{{ d.check_ins }}</td>
+              <td class="num">{{ d.check_outs }}</td>
+              <td class="num strong">{{ d.total }}</td>
+              <td class="num">{{ d.overnight }}</td>
+              <td class="num muted">{{ d.tentative or '' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="2">合計</th>
+            <td class="num">{{ summary.days | sum(attribute='check_ins') }}</td>
+            <td class="num">{{ summary.days | sum(attribute='check_outs') }}</td>
+            <td class="num strong">{{ summary.person_days }}</td>
+            <td class="num">{{ summary.days | sum(attribute='overnight') }}</td>
+            <td class="num muted">{{ summary.days | sum(attribute='tentative') or '' }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

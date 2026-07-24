@@ -1,0 +1,6 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Windows のバッチはダブルクリック起動用。改行は CRLF 固定にする
+# （LF だと日本語版 cmd で起動に失敗することがある）
+*.bat text eol=crlf

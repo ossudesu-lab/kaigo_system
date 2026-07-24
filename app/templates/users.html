@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}利用者マスタ - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav">
+  <span class="current-month">利用者マスタ</span>
+</nav>
+
+<form class="user-search" method="get" action="/users">
+  <input type="search" name="keyword" value="{{ keyword }}" placeholder="名前・ふりがなで絞り込む" autocomplete="off">
+  {% if keyword %}<a class="clear-search" href="/users">解除</a>{% endif %}
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="users-page">
+
+  <div class="users-head">
+    <h2>登録済み <span class="count">{{ users | length }}</span></h2>
+    <button type="button" class="btn-primary" id="btn-new-user">＋ 利用者を登録</button>
+  </div>
+
+  {% if users %}
+  <div class="panel table-scroll">
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>氏名</th>
+          <th>性別</th>
+          <th>疾患</th>
+          <th>注意事項</th>
+          <th>できる訓練</th>
+          <th>入浴</th>
+          <th>固定部屋</th>
+          <th>担当CM</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr data-user="{{ u.id }}">
+            <td class="name">
+              {{ u.name }}
+              {% if u.kana %}
+                <span class="sub">{{ u.kana }}</span>
+              {% else %}
+                <span class="sub missing">ふりがな未入力</span>
+              {% endif %}
+            </td>
+            <td><span class="tag tag-{{ 'male' if u.gender.value == '男性' else 'female' }}">{{ u.gender.value }}</span></td>
+            <td>{{ u.condition or '' }}</td>
+            <td class="notes">{{ u.notes or '' }}</td>
+            <td>{{ u.training or '' }}</td>
+            <td>{{ u.bathing_type or '' }}</td>
+            <td>{{ u.fixed_bed_id or '' }}</td>
+            <td>
+              {% if u.cm_name %}
+                {{ u.cm_name }}
+                {% if u.cm_office %}<span class="sub">{{ u.cm_office }}</span>{% endif %}
+                {% if u.cm_phone %}<span class="sub">{{ u.cm_phone }}</span>{% endif %}
+              {% endif %}
+            </td>
+            <td><button type="button" class="btn-edit btn-edit-user">編集</button></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel empty-state">
+    {% if keyword %}
+      「{{ keyword }}」に一致する利用者はいません。
+    {% else %}
+      まだ利用者が登録されていません。「＋ 利用者を登録」から追加してください。
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+
+{# 登録・編集フォーム #}
+<div class="modal-backdrop" id="user-modal" hidden>
+  <div class="modal modal-wide">
+    <h2 class="modal-title">利用者を登録</h2>
+
+    <form id="user-form">
+      <input type="hidden" name="user_id">
+
+      <div class="row">
+        <label class="grow">
+          氏名
+          <input type="text" name="name" required autocomplete="off">
+        </label>
+        <fieldset class="gender-set">
+          <legend>性別</legend>
+          <label class="inline"><input type="radio" name="gender" value="男性" required> 男性</label>
+          <label class="inline"><input type="radio" name="gender" value="女性"> 女性</label>
+        </fieldset>
+      </div>
+
+      {# 一覧やプルダウンの並び順に使う。漢字のままだと文字コード順になり、
+         名簿として探せなくなるため。 #}
+      <label>
+        ふりがな
+        <input type="text" name="kana" autocomplete="off" placeholder="例：さとう はなこ">
+      </label>
+      <p class="field-note">一覧の並び順に使います。カタカナで入力してもひらがなに揃えて保存します。</p>
+
+      <label>
+        疾患
+        <input type="text" name="condition" autocomplete="off" placeholder="例：糖尿病">
+      </label>
+
+      <label>
+        注意事項
+        <input type="text" name="notes" autocomplete="off" placeholder="例：転倒リスク高い">
+      </label>
+
+      <label>
+        できる訓練
+        <input type="text" name="training" autocomplete="off" placeholder="例：エアロバイク">
+      </label>
+
+      <div class="row">
+        <label>
+          入浴種別
+          <select name="bathing_type">
+            <option value="">未設定</option>
+            {% for t in config.bathing_types %}
+              <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          固定部屋番号
+          <select name="fixed_bed_id">
+            <option value="">未設定（部屋は予約ごとに決める）</option>
+            {% for bed in config.beds %}
+              <option value="{{ bed.id }}">{{ bed.id }}{{ '（準個室）' if bed.is_shared else '' }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>担当ケアマネジャー</legend>
+        <label>
+          氏名
+          <input type="text" name="cm_name" autocomplete="off">
+        </label>
+        <label>
+          事業所名
+          <input type="text" name="cm_office" autocomplete="off">
+        </label>
+        <label>
+          連絡先
+          <input type="text" name="cm_phone" autocomplete="off" placeholder="例：03-1234-5678">
+        </label>
+      </fieldset>
+
+      <p class="form-error" id="user-form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="btn-delete-user" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-cancel" id="btn-cancel-user">キャンセル</button>
+        <button type="submit" class="btn-save">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/users.js?v={{ static_v('users.js') }}"></script>
+{% endblock %}

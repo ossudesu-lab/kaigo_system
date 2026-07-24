@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ config.facility_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ static_v('style.css') }}">
+  {# 色は config.toml で施設ごとに変えられるようにしているので、
+     CSSに直接書かず、変数としてここから流し込む #}
+  <style>
+    :root {
+      --color-stay: {{ config.colors.stay }};
+      --color-checkin: {{ config.colors.checkin }};
+      --color-checkout: {{ config.colors.checkout }};
+      {# 予約表の帯は、利用者名が上に重なるので地色を淡くして文字を読みやすく
+         する。濃い版（上の3つ）はグラフ・凡例キー・当日台帳のチップなど、
+         文字が乗らず色の主張がほしい所で使う。淡い版はここで濃い版から
+         自動生成（白を35%混ぜる）するので、施設が色を変えても追従する。 #}
+      --color-stay-fill: color-mix(in srgb, var(--color-stay) 65%, #fff);
+      --color-checkin-fill: color-mix(in srgb, var(--color-checkin) 65%, #fff);
+      --color-checkout-fill: color-mix(in srgb, var(--color-checkout) 65%, #fff);
+      --color-male: {{ config.colors.male }};
+      --color-female: {{ config.colors.female }};
+      --color-conflict: {{ config.colors.conflict }};
+      --color-mixed-gender: {{ config.colors.mixed_gender }};
+      --color-daytrip: {{ config.colors.daytrip }};
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    {# 施設名は常に予約表（ホーム）へのリンクにする。
+       画面ごとに「戻る」を置くと足し忘れが起きるので、どの画面でも
+       左上を押せば必ず戻れる状態にしておく。 #}
+    <h1>
+      <a class="home-link" href="/grid?year={{ today.year }}&month={{ today.month }}"
+         title="予約表に戻る">{{ config.facility_name }}</a>
+    </h1>
+
+    {# 全画面共通のナビゲーション。
+       画面ごとにリンクを並べていると足し忘れが起きるので（実際に問い合わせ
+       画面への導線が抜けていた）、ここ1箇所にまとめる。画面を足したら
+       このリストに1行足すだけで、全画面から行けるようになる。
+
+       日付を引き回しているのは、見ている日を保ったまま移れるようにするため。 #}
+    <nav class="global-nav">
+      {% set current = request.url.path %}
+      <a href="/grid?year={{ nav_year }}&month={{ nav_month }}"
+         class="{% if current == '/grid' %}is-current{% endif %}">予約表</a>
+      <a href="/today"
+         class="{% if current == '/today' %}is-current{% endif %}">今日</a>
+      <a href="/inquiries"
+         class="{% if current == '/inquiries' %}is-current{% endif %}">問い合わせ</a>
+
+      <span class="nav-sep"></span>
+
+      <a href="/ledger?day={{ nav_day }}"
+         class="{% if current == '/ledger' %}is-current{% endif %}">当日台帳</a>
+      <a href="/bathing?day={{ nav_day }}"
+         class="{% if current == '/bathing' %}is-current{% endif %}">入浴表</a>
+      <a href="/report?year={{ nav_year }}&month={{ nav_month }}"
+         class="{% if current == '/report' %}is-current{% endif %}">月次レポート</a>
+
+      <span class="nav-sep"></span>
+
+      <a href="/users"
+         class="{% if current == '/users' %}is-current{% endif %}">利用者マスタ</a>
+      <a href="/care-managers"
+         class="{% if current == '/care-managers' %}is-current{% endif %}">CMマスタ</a>
+    </nav>
+  </header>
+
+  {# 画面ごとの操作（日付の移動・CSV・印刷など）は本文側に置く。
+     共通ナビと混ざると、どれが画面移動でどれが操作なのか分からなくなる。 #}
+  <div class="page-bar">
+    {% block header_extra %}{% endblock %}
+  </div>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

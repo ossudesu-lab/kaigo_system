@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}問い合わせ - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav">
+  <span class="current-month">問い合わせ</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="inquiry-page">
+
+  {# 絞り込み。一覧から目的の問い合わせを素早く探すためのもの（仕様の絞り込み機能）。
+     GETで送ってURLに残すので、絞った状態のまま画面を共有できる。 #}
+  <form class="filter-bar panel" method="get" action="/inquiries">
+    <label>
+      対応状況
+      <select name="status">
+        <option value="">すべて</option>
+        {% for s in config.inquiry.statuses %}
+          <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      内容
+      <select name="kind">
+        <option value="">すべて</option>
+        {% for k in config.inquiry.kinds %}
+          <option value="{{ k }}" {% if filters.kind == k %}selected{% endif %}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      CM
+      <select name="care_manager_id">
+        <option value="">すべて</option>
+        {% for c in care_managers %}
+          <option value="{{ c.id }}" {% if filters.care_manager_id == c.id %}selected{% endif %}>
+            {{ c.name }}{% if c.office %}（{{ c.office }}）{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      利用者名
+      <input type="search" name="guest_keyword" value="{{ filters.guest_keyword }}" autocomplete="off">
+    </label>
+
+    <label>
+      問い合わせ日
+      <span class="date-range">
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+        <span>〜</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </span>
+    </label>
+
+    <label>
+      フリーワード
+      <input type="search" name="keyword" value="{{ filters.keyword }}" placeholder="メモを検索" autocomplete="off">
+    </label>
+
+    <div class="filter-actions">
+      <button type="submit" class="btn-primary">絞り込む</button>
+      {% if has_filter %}<a class="clear-search" href="/inquiries">解除</a>{% endif %}
+    </div>
+  </form>
+
+  <div class="users-head">
+    <h2>問い合わせ <span class="count">{{ inquiries | length }}</span></h2>
+    <button type="button" class="btn-primary" id="btn-new-inquiry">＋ 問い合わせを記録</button>
+  </div>
+
+  {% if inquiries %}
+  <div class="panel table-scroll">
+    <table class="inquiry-table">
+      <thead>
+        <tr>
+          <th>問い合わせ日</th>
+          <th>対応状況</th>
+          <th>内容</th>
+          <th>利用者</th>
+          <th>CM</th>
+          <th>希望日程</th>
+          <th>メモ</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in inquiries %}
+          <tr data-inquiry="{{ i.id }}" class="{% if i.is_converted %}is-converted{% endif %}">
+            <td class="nowrap">{{ i.inquiry_date.strftime('%m/%d') }}</td>
+            <td><span class="status status-{{ loop.index0 }}">{{ i.status }}</span></td>
+            <td class="nowrap">{{ i.kind }}</td>
+            <td class="name">
+              {{ i.display_name }}
+              {# マスタに未登録の方は、変換時に登録が要ることが分かるようにしておく #}
+              {% if not i.is_registered_user %}<span class="tag tag-new">新規</span>{% endif %}
+            </td>
+            <td>
+              {% if i.care_manager %}
+                {{ i.care_manager.name }}
+                {% if i.care_manager.office %}<span class="sub">{{ i.care_manager.office }}</span>{% endif %}
+              {% endif %}
+            </td>
+            <td class="nowrap">
+              {% if i.desired_check_in and i.desired_check_out %}
+                {{ i.desired_check_in.strftime('%m/%d') }} 〜 {{ i.desired_check_out.strftime('%m/%d') }}
+                <span class="sub">{{ (i.desired_check_out - i.desired_check_in).days }}泊</span>
+              {% else %}
+                <span class="sub">未定</span>
+              {% endif %}
+            </td>
+            <td class="memo">{{ i.memo or '' }}</td>
+            <td class="nowrap actions-cell">
+              {% if i.is_converted %}
+                <a class="converted-link" href="/grid?year={{ i.desired_check_in.year }}&month={{ i.desired_check_in.month }}">
+                  予約済み
+                </a>
+              {% elif i.desired_check_in and i.desired_check_out %}
+                <button type="button" class="btn-convert">予約にする</button>
+              {% else %}
+                {# 日程が決まっていない問い合わせは予約にできない。
+                   内容が「キャンセル」かどうかでは判断しない。選択肢は施設ごとに
+                   変えられるので、名前を決め打ちにすると他施設で外れるため。 #}
+                <span class="convert-unavailable" title="希望日程を入れると予約にできます">日程未定</span>
+              {% endif %}
+              <button type="button" class="btn-edit btn-edit-inquiry">編集</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel empty-state">
+    {% if has_filter %}
+      条件に合う問い合わせはありません。
+    {% else %}
+      まだ問い合わせが記録されていません。「＋ 問い合わせを記録」から追加してください。
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+
+{# 記録・編集フォーム #}
+<div class="modal-backdrop" id="inquiry-modal" hidden>
+  <div class="modal modal-wide">
+    <h2 class="modal-title">問い合わせを記録</h2>
+
+    <form id="inquiry-form">
+      <input type="hidden" name="inquiry_id">
+
+      <div class="row">
+        <label>
+          問い合わせ日
+          <input type="date" name="inquiry_date" required>
+        </label>
+        <label>
+          内容
+          <select name="kind" required>
+            {% for k in config.inquiry.kinds %}
+              <option value="{{ k }}">{{ k }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          対応状況
+          <select name="status">
+            {% for s in config.inquiry.statuses %}
+              <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      {# CMを選ぶと事業所名・連絡先が下に出る（仕様2の「選ぶだけで自動で入る」） #}
+      <label>
+        CM（担当ケアマネ）
+        <select name="care_manager_id" id="cm-select">
+          <option value="">未選択</option>
+          {% for c in care_managers %}
+            <option value="{{ c.id }}"
+                    data-office="{{ c.office or '' }}"
+                    data-phone="{{ c.phone or '' }}"
+                    data-fax="{{ c.fax or '' }}">{{ c.name }}{% if c.office %}（{{ c.office }}）{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="cm-detail" id="cm-detail"></p>
+      <p class="field-note">
+        新しいCMは <a href="/care-managers" target="_blank" rel="noopener">CMマスタ</a> で登録してください
+      </p>
+
+      {# 対象の利用者。マスタから選ぶのが基本だが、新規の方の相談も受けるので
+         名前だけの手入力も許す（仕様1）。 #}
+      <fieldset>
+        <legend>対象の利用者</legend>
+
+        <label>
+          利用者マスタから選ぶ
+          <select name="user_master_id" id="inquiry-user-select">
+            <option value="">選択しない（新規の方）</option>
+            {% for u in users %}
+              <option value="{{ u.id }}">{{ u.name }}（{{ u.gender.value }}）</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label id="guest-name-label">
+          新規の方の氏名
+          <input type="text" name="guest_name" autocomplete="off" placeholder="マスタにいない方はこちらに入力">
+        </label>
+      </fieldset>
+
+      <div class="row">
+        <label>
+          入所希望日
+          <input type="date" name="desired_check_in">
+        </label>
+        <label>
+          退所希望日
+          <input type="date" name="desired_check_out">
+        </label>
+      </div>
+      <p class="field-note">まだ決まっていなければ空のままで構いません。</p>
+
+      <label>
+        備考・メモ
+        <input type="text" name="memo" autocomplete="off">
+      </label>
+
+      <p class="form-error" id="inquiry-form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="btn-delete-inquiry" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-cancel" id="btn-cancel-inquiry">キャンセル</button>
+        <button type="submit" class="btn-save">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# 予約への変換 #}
+<div class="modal-backdrop" id="convert-modal" hidden>
+  <div class="modal">
+    <h2 class="modal-title">予約にする</h2>
+
+    <p class="convert-summary" id="convert-summary"></p>
+
+    <fieldset>
+      <legend>予約の種別</legend>
+      <label class="inline"><input type="radio" name="convert_tentative" value="false"> 本予約</label>
+      <label class="inline"><input type="radio" name="convert_tentative" value="true"> 仮予約</label>
+      <p class="field-note" id="convert-tentative-note"></p>
+    </fieldset>
+
+    {# マスタ未登録の方は、この変換の中でマスタに登録する。
+       予約は利用者マスタを参照する作りなので、性別が要る。 #}
+    <fieldset id="convert-gender-set" hidden>
+      <legend>性別（利用者マスタへの登録に必要）</legend>
+      <label class="inline"><input type="radio" name="convert_gender" value="男性"> 男性</label>
+      <label class="inline"><input type="radio" name="convert_gender" value="女性"> 女性</label>
+      <p class="field-note">この方は利用者マスタに未登録です。変換と同時に登録します。</p>
+    </fieldset>
+
+    <p class="field-note">部屋は未定のまま作成し、予約表の「部屋未定」リストに入ります。</p>
+    <p class="form-error" id="convert-error" hidden></p>
+
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn-cancel" id="btn-cancel-convert">キャンセル</button>
+      <button type="button" class="btn-save" id="btn-do-convert">予約を作成</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/inquiries.js?v={{ static_v('inquiries.js') }}"></script>
+{% endblock %}

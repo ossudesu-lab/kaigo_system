@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}当日台帳 {{ day.strftime('%m/%d') }} - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav no-print">
+  <a href="/ledger?day={{ prev_day }}">← 前日</a>
+  <span class="current-month">{{ day.strftime('%Y年%m月%d日') }}（{{ weekday_labels[day.weekday()] }}）</span>
+  <a href="/ledger?day={{ next_day }}">翌日 →</a>
+  <a class="today-link" href="/ledger?day={{ today }}">今日</a>
+</nav>
+
+<div class="report-actions no-print">
+  <a class="btn-csv" href="/api/reports/ledger.csv?day={{ day }}">CSV出力</a>
+  <button type="button" class="btn-print" onclick="window.print()">印刷</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="ledger-page">
+
+  {# 印刷したときに、何日の台帳か分かるようにしておく #}
+  <h2 class="print-title">
+    当日台帳　{{ day.strftime('%Y年%m月%d日') }}（{{ weekday_labels[day.weekday()] }}）
+    <span class="print-count">{{ attendees | length }}名</span>
+  </h2>
+
+  {% if attendees %}
+  <div class="ledger-blocks" style="--blocks: {{ blocks | length }}">
+    {% for block in blocks %}
+      <table class="ledger-table">
+        <thead>
+          <tr>
+            <th class="col-room">部屋</th>
+            <th class="col-name">名前</th>
+            <th>疾患</th>
+            <th>注意事項</th>
+            <th>できる訓練</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in block.rows %}
+            <tr class="{% if a.bed_id is none %}is-unassigned{% endif %}">
+              <td class="col-room">{{ a.bed_id or '未定' }}</td>
+              <td class="col-name">
+                {{ a.name }}
+                <span class="marks">
+                  {% if a.is_checkin(day) %}<span class="mark mark-in">入</span>{% endif %}
+                  {% if a.is_checkout(day) %}<span class="mark mark-out">退</span>{% endif %}
+                  {% if a.is_tentative %}<span class="mark mark-tentative">仮</span>{% endif %}
+                </span>
+              </td>
+              <td>{{ a.condition or '' }}</td>
+              <td>{{ a.notes or '' }}</td>
+              <td>{{ a.training or '' }}</td>
+            </tr>
+          {% endfor %}
+          {# ブロックの高さを揃えるための空行。印刷したとき枠が崩れないように #}
+          {% for _ in range(blocks[0].rows | length - block.rows | length) %}
+            <tr class="filler"><td colspan="5"></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+  </div>
+
+  <p class="ledger-note no-print">
+    部屋番号順に並べています。部屋が未定の方も末尾に必ず出します（台帳から漏れると現場で事故につながるため）。
+    仮予約の方には「仮」を付けています。
+  </p>
+  {% else %}
+  <div class="panel empty-state">この日は利用者がいません。</div>
+  {% endif %}
+
+</div>
+{% endblock %}

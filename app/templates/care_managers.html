@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}CMマスタ - {{ config.facility_name }}{% endblock %}
+
+{% block header_extra %}
+<nav class="month-nav">
+  <span class="current-month">CMマスタ</span>
+</nav>
+
+<form class="user-search" method="get" action="/care-managers">
+  <input type="search" name="keyword" value="{{ keyword }}" placeholder="氏名・事業所名で絞り込む" autocomplete="off">
+  {% if keyword %}<a class="clear-search" href="/care-managers">解除</a>{% endif %}
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="users-page">
+
+  <div class="users-head">
+    <h2>登録済み <span class="count">{{ care_managers | length }}</span></h2>
+    <button type="button" class="btn-primary" id="btn-new-cm">＋ CMを登録</button>
+  </div>
+
+  {% if care_managers %}
+  <div class="panel table-scroll">
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>氏名</th>
+          <th>事業所</th>
+          <th>電話</th>
+          <th>FAX</th>
+          <th>メール</th>
+          <th>備考</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in care_managers %}
+          <tr data-cm="{{ c.id }}">
+            <td class="name">{{ c.name }}</td>
+            <td>{{ c.office or '' }}</td>
+            <td>{{ c.phone or '' }}</td>
+            <td>{{ c.fax or '' }}</td>
+            <td>{{ c.email or '' }}</td>
+            <td class="notes">{{ c.notes or '' }}</td>
+            <td><button type="button" class="btn-edit btn-edit-cm">編集</button></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel empty-state">
+    {% if keyword %}
+      「{{ keyword }}」に一致するCMはいません。
+    {% else %}
+      まだCMが登録されていません。「＋ CMを登録」から追加してください。
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+
+<div class="modal-backdrop" id="cm-modal" hidden>
+  <div class="modal">
+    <h2 class="modal-title">CMを登録</h2>
+
+    <form id="cm-form">
+      <input type="hidden" name="cm_id">
+
+      <label>
+        CM氏名
+        <input type="text" name="name" required autocomplete="off">
+      </label>
+
+      <label>
+        所属事業所名
+        <input type="text" name="office" autocomplete="off">
+      </label>
+
+      <div class="row">
+        <label>
+          電話番号
+          <input type="text" name="phone" autocomplete="off">
+        </label>
+        <label>
+          FAX番号
+          <input type="text" name="fax" autocomplete="off">
+        </label>
+      </div>
+
+      <label>
+        メールアドレス
+        <input type="text" name="email" autocomplete="off">
+      </label>
+
+      <label>
+        備考
+        <input type="text" name="notes" autocomplete="off">
+      </label>
+
+      <p class="form-error" id="cm-form-error" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="btn-delete-cm" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-cancel" id="btn-cancel-cm">キャンセル</button>
+        <button type="submit" class="btn-save">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/care_managers.js?v={{ static_v('care_managers.js') }}"></script>
+{% endblock %}
