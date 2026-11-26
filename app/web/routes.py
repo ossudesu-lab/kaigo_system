@@ -221,6 +221,8 @@ def users_page(
             **_nav(),
             "config": config,
             "users": users,
+            # 担当CMのプルダウン用（CMマスタから選ぶ）
+            "care_managers": cm_service.list_care_managers(session),
             "keyword": keyword or "",
             "today": date.today(),
         },

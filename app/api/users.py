@@ -23,12 +23,15 @@ class UserCreate(BaseModel):
     training: str | None = None
     bathing_type: str | None = None
     fixed_bed_id: str | None = None
-    cm_name: str | None = None
-    cm_office: str | None = None
-    cm_phone: str | None = None
+    care_manager_id: int | None = None
 
 
 class UserUpdate(BaseModel):
+    """更新の形。送られてきた項目だけを変える。
+
+    項目を送らなければそのまま、null や空文字を送ればその項目を消す。
+    """
+
     name: str | None = None
     gender: Gender | None = None
     kana: str | None = None
@@ -37,9 +40,7 @@ class UserUpdate(BaseModel):
     training: str | None = None
     bathing_type: str | None = None
     fixed_bed_id: str | None = None
-    cm_name: str | None = None
-    cm_office: str | None = None
-    cm_phone: str | None = None
+    care_manager_id: int | None = None
 
 
 def _handle(error: ValidationError) -> HTTPException:
@@ -80,7 +81,9 @@ def update(
     session: Session = Depends(get_session),
 ) -> UserMaster:
     try:
-        return service.update_user(session, user_id, **payload.model_dump())
+        return service.update_user(
+            session, user_id, **payload.model_dump(exclude_unset=True)
+        )
     except ValidationError as error:
         raise _handle(error) from error
 

@@ -1,0 +1,5 @@
+# テストを動かすときだけ要るもの。施設で動かすだけなら不要。
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   python -m pytest
+pytest
+httpx

@@ -80,7 +80,7 @@ def update_care_manager(
 ) -> CareManager:
     try:
         return cm_service.update_care_manager(
-            session, care_manager_id, **payload.model_dump()
+            session, care_manager_id, **payload.model_dump(exclude_unset=True)
         )
     except ValidationError as error:
         raise _handle(error) from error
@@ -230,7 +230,9 @@ def update_inquiry(
 ) -> InquiryRead:
     try:
         return InquiryRead.of(
-            service.update_inquiry(session, inquiry_id, **payload.model_dump())
+            service.update_inquiry(
+                session, inquiry_id, **payload.model_dump(exclude_unset=True)
+            )
         )
     except ValidationError as error:
         raise _handle(error) from error

@@ -10,7 +10,8 @@ import re
 from sqlmodel import Session, select
 
 from app.config import load_config
-from app.models import Gender, Reservation, UserMaster
+from app.models import CareManager, Gender, Reservation, UserMaster
+from app.services.common import UNSET
 from app.services.reservations import ValidationError
 
 
@@ -50,13 +51,19 @@ def normalize_kana(value: str | None) -> str | None:
 
 
 def _validate(
-    name: str,
+    session: Session,
+    name: str | None,
+    gender: Gender | None,
     kana: str | None,
     bathing_type: str | None,
     fixed_bed_id: str | None,
+    care_manager_id: int | None,
 ) -> None:
-    if not name.strip():
+    if name is None or not name.strip():
         raise ValidationError("利用者名を入力してください")
+
+    if gender is None:
+        raise ValidationError("性別を選んでください")
 
     if kana is not None and not _KANA_PATTERN.match(kana):
         raise ValidationError("ふりがなは、ひらがなかカタカナで入力してください")
@@ -68,6 +75,9 @@ def _validate(
 
     if fixed_bed_id is not None and config.bed_by_id(fixed_bed_id) is None:
         raise ValidationError(f"存在しない部屋番号です: {fixed_bed_id}")
+
+    if care_manager_id is not None and session.get(CareManager, care_manager_id) is None:
+        raise ValidationError(f"CMが見つかりません: {care_manager_id}")
 
 
 def create_user(
@@ -81,14 +91,12 @@ def create_user(
     training: str | None = None,
     bathing_type: str | None = None,
     fixed_bed_id: str | None = None,
-    cm_name: str | None = None,
-    cm_office: str | None = None,
-    cm_phone: str | None = None,
+    care_manager_id: int | None = None,
 ) -> UserMaster:
     bathing_type = _clean(bathing_type)
     fixed_bed_id = _clean(fixed_bed_id)
     kana = normalize_kana(kana)
-    _validate(name, kana, bathing_type, fixed_bed_id)
+    _validate(session, name, gender, kana, bathing_type, fixed_bed_id, care_manager_id)
 
     user = UserMaster(
         name=name.strip(),
@@ -99,9 +107,7 @@ def create_user(
         training=_clean(training),
         bathing_type=bathing_type,
         fixed_bed_id=fixed_bed_id,
-        cm_name=_clean(cm_name),
-        cm_office=_clean(cm_office),
-        cm_phone=_clean(cm_phone),
+        care_manager_id=care_manager_id,
     )
     session.add(user)
     session.commit()
@@ -138,45 +144,46 @@ def update_user(
     session: Session,
     user_id: int,
     *,
-    name: str | None = None,
-    gender: Gender | None = None,
-    kana: str | None = None,
-    condition: str | None = None,
-    notes: str | None = None,
-    training: str | None = None,
-    bathing_type: str | None = None,
-    fixed_bed_id: str | None = None,
-    cm_name: str | None = None,
-    cm_office: str | None = None,
-    cm_phone: str | None = None,
+    name: str | None = UNSET,
+    gender: Gender | None = UNSET,
+    kana: str | None = UNSET,
+    condition: str | None = UNSET,
+    notes: str | None = UNSET,
+    training: str | None = UNSET,
+    bathing_type: str | None = UNSET,
+    fixed_bed_id: str | None = UNSET,
+    care_manager_id: int | None = UNSET,
 ) -> UserMaster:
+    """利用者の内容を変える。
+
+    渡さなかった項目（UNSET）はそのまま。None や空文字を渡した項目は消す。
+    編集画面で欄を空にして保存したら、その項目が消えるようにするため。
+    """
     user = session.get(UserMaster, user_id)
     if user is None:
         raise ValidationError(f"利用者が見つかりません: {user_id}")
 
-    new_name = name if name is not None else user.name
-    new_bathing = _clean(bathing_type) if bathing_type is not None else user.bathing_type
-    new_bed = _clean(fixed_bed_id) if fixed_bed_id is not None else user.fixed_bed_id
-    new_kana = normalize_kana(kana) if kana is not None else user.kana
-    _validate(new_name, new_kana, new_bathing, new_bed)
+    new_name = user.name if name is UNSET else name
+    new_gender = user.gender if gender is UNSET else gender
+    new_kana = user.kana if kana is UNSET else normalize_kana(kana)
+    new_bathing = user.bathing_type if bathing_type is UNSET else _clean(bathing_type)
+    new_bed = user.fixed_bed_id if fixed_bed_id is UNSET else _clean(fixed_bed_id)
+    new_cm = user.care_manager_id if care_manager_id is UNSET else care_manager_id
+    _validate(session, new_name, new_gender, new_kana, new_bathing, new_bed, new_cm)
 
-    user.name = new_name.strip()
+    user.name = new_name.strip()  # type: ignore[union-attr]
+    user.gender = new_gender  # type: ignore[assignment]
     user.kana = new_kana
-    if gender is not None:
-        user.gender = gender
     user.bathing_type = new_bathing
     user.fixed_bed_id = new_bed
+    user.care_manager_id = new_cm
 
-    # 任意項目は「送られてきたら上書き」。空文字を送れば消せる。
     for field, value in (
         ("condition", condition),
         ("notes", notes),
         ("training", training),
-        ("cm_name", cm_name),
-        ("cm_office", cm_office),
-        ("cm_phone", cm_phone),
     ):
-        if value is not None:
+        if value is not UNSET:
             setattr(user, field, _clean(value))
 
     session.add(user)

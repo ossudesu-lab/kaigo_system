@@ -55,10 +55,11 @@
             <td>{{ u.bathing_type or '' }}</td>
             <td>{{ u.fixed_bed_id or '' }}</td>
             <td>
-              {% if u.cm_name %}
-                {{ u.cm_name }}
-                {% if u.cm_office %}<span class="sub">{{ u.cm_office }}</span>{% endif %}
-                {% if u.cm_phone %}<span class="sub">{{ u.cm_phone }}</span>{% endif %}
+              {% set cm = u.care_manager %}
+              {% if cm %}
+                {{ cm.name }}
+                {% if cm.office %}<span class="sub">{{ cm.office }}</span>{% endif %}
+                {% if cm.phone %}<span class="sub">{{ cm.phone }}</span>{% endif %}
               {% endif %}
             </td>
             <td><button type="button" class="btn-edit btn-edit-user">編集</button></td>
@@ -144,21 +145,18 @@
         </label>
       </div>
 
-      <fieldset>
-        <legend>担当ケアマネジャー</legend>
-        <label>
-          氏名
-          <input type="text" name="cm_name" autocomplete="off">
-        </label>
-        <label>
-          事業所名
-          <input type="text" name="cm_office" autocomplete="off">
-        </label>
-        <label>
-          連絡先
-          <input type="text" name="cm_phone" autocomplete="off" placeholder="例：03-1234-5678">
-        </label>
-      </fieldset>
+      {# CMは自由入力ではなくCMマスタから選ぶ。同じCMの情報が利用者ごとに
+         散らばって表記がばらつくのを防ぐため（models.py の UserMaster 参照）。 #}
+      <label>
+        担当ケアマネジャー
+        <select name="care_manager_id">
+          <option value="">未設定</option>
+          {% for c in care_managers %}
+            <option value="{{ c.id }}">{{ c.name }}{% if c.office %}（{{ c.office }}）{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="field-note">一覧にないCMは、先に<a href="/care-managers">CMマスタ</a>で登録してください。</p>
 
       <p class="form-error" id="user-form-error" hidden></p>
 

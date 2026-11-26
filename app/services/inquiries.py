@@ -14,6 +14,7 @@ from app.config import load_config
 from app.models import CareManager, Gender, Inquiry, Reservation, UserMaster
 from app.services import reservations as reservation_service
 from app.services import users as user_service
+from app.services.common import UNSET
 from app.services.reservations import ValidationError
 from app.services.users import _clean
 
@@ -105,35 +106,47 @@ def update_inquiry(
     session: Session,
     inquiry_id: int,
     *,
-    inquiry_date: date | None = None,
-    kind: str | None = None,
-    status: str | None = None,
-    care_manager_id: int | None = None,
-    user_master_id: int | None = None,
-    guest_name: str | None = None,
-    desired_check_in: date | None = None,
-    desired_check_out: date | None = None,
-    memo: str | None = None,
+    inquiry_date: date | None = UNSET,
+    kind: str | None = UNSET,
+    status: str | None = UNSET,
+    care_manager_id: int | None = UNSET,
+    user_master_id: int | None = UNSET,
+    guest_name: str | None = UNSET,
+    desired_check_in: date | None = UNSET,
+    desired_check_out: date | None = UNSET,
+    memo: str | None = UNSET,
 ) -> Inquiry:
+    """問い合わせの内容を変える。
+
+    渡さなかった項目（UNSET）はそのまま。None を渡した項目は消す。
+    編集画面で希望日やメモを空にして保存したら、その通りに消えるようにするため。
+    """
     inquiry = session.get(Inquiry, inquiry_id)
     if inquiry is None:
         raise ValidationError(f"問い合わせが見つかりません: {inquiry_id}")
 
-    new_kind = kind if kind is not None else inquiry.kind
-    new_status = status if status is not None else inquiry.status
-    new_user = user_master_id if user_master_id is not None else inquiry.user_master_id
-    new_guest = _clean(guest_name) if guest_name is not None else inquiry.guest_name
-    new_cm = care_manager_id if care_manager_id is not None else inquiry.care_manager_id
-    new_in = desired_check_in if desired_check_in is not None else inquiry.desired_check_in
-    new_out = (
-        desired_check_out if desired_check_out is not None else inquiry.desired_check_out
-    )
+    def pick(value, current):
+        return current if value is UNSET else value
+
+    new_date = pick(inquiry_date, inquiry.inquiry_date)
+    if new_date is None:
+        raise ValidationError("問い合わせ日を入力してください")
+
+    new_kind = pick(kind, inquiry.kind)
+    new_status = pick(status, inquiry.status)
+    new_user = pick(user_master_id, inquiry.user_master_id)
+    new_guest = inquiry.guest_name if guest_name is UNSET else _clean(guest_name)
+    new_cm = pick(care_manager_id, inquiry.care_manager_id)
+    new_in = pick(desired_check_in, inquiry.desired_check_in)
+    new_out = pick(desired_check_out, inquiry.desired_check_out)
+    new_memo = inquiry.memo if memo is UNSET else _clean(memo)
 
     _validate(session, new_kind, new_status, new_user, new_guest, new_cm, new_in, new_out)
 
     if new_user is not None:
         new_guest = None
 
+    inquiry.inquiry_date = new_date
     inquiry.kind = new_kind
     inquiry.status = new_status
     inquiry.care_manager_id = new_cm
@@ -141,10 +154,7 @@ def update_inquiry(
     inquiry.guest_name = new_guest
     inquiry.desired_check_in = new_in
     inquiry.desired_check_out = new_out
-    if inquiry_date is not None:
-        inquiry.inquiry_date = inquiry_date
-    if memo is not None:
-        inquiry.memo = _clean(memo)
+    inquiry.memo = new_memo
 
     session.add(inquiry)
     session.commit()

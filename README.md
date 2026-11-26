@@ -214,6 +214,15 @@ python -m uvicorn main:app
 Windows環境で起動しない、あるいは変更が画面に反映されない場合は、
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) を参照してください。
 
+### テスト
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest
+```
+
+テストはメモリ上の一時的なDBで動くので、`kaigo.db` の中身には影響しません。
+
 ---
 
 ## ライセンス

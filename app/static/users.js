@@ -22,9 +22,7 @@
     "training",
     "bathing_type",
     "fixed_bed_id",
-    "cm_name",
-    "cm_office",
-    "cm_phone",
+    "care_manager_id",
   ];
 
   document.getElementById("btn-new-user").addEventListener("click", () => {
@@ -94,9 +92,13 @@
       name: form.name.value,
       gender: form.querySelector('input[name="gender"]:checked').value,
     };
-    // 空欄は null で送る。サーバ側で「未入力」として扱われる。
+    // 空欄は null で送る。サーバ側では「その項目を消す」として扱われる
+    // （編集で欄を空にして保存したら、その項目が消える）。
     for (const field of OPTIONAL_FIELDS) {
       payload[field] = form[field].value || null;
+    }
+    if (payload.care_manager_id !== null) {
+      payload.care_manager_id = Number(payload.care_manager_id);
     }
 
     const id = form.user_id.value;

@@ -10,6 +10,7 @@ from __future__ import annotations
 from sqlmodel import Session, select
 
 from app.models import CareManager, Inquiry, UserMaster
+from app.services.common import UNSET
 from app.services.reservations import ValidationError
 from app.services.users import _clean
 
@@ -65,19 +66,20 @@ def update_care_manager(
     session: Session,
     care_manager_id: int,
     *,
-    name: str | None = None,
-    office: str | None = None,
-    phone: str | None = None,
-    fax: str | None = None,
-    email: str | None = None,
-    notes: str | None = None,
+    name: str | None = UNSET,
+    office: str | None = UNSET,
+    phone: str | None = UNSET,
+    fax: str | None = UNSET,
+    email: str | None = UNSET,
+    notes: str | None = UNSET,
 ) -> CareManager:
+    """CMの内容を変える。渡さなかった項目はそのまま、None や空文字は消す。"""
     care_manager = session.get(CareManager, care_manager_id)
     if care_manager is None:
         raise ValidationError(f"CMが見つかりません: {care_manager_id}")
 
-    if name is not None:
-        if not name.strip():
+    if name is not UNSET:
+        if name is None or not name.strip():
             raise ValidationError("CMの氏名を入力してください")
         care_manager.name = name.strip()
 
@@ -88,7 +90,7 @@ def update_care_manager(
         ("email", email),
         ("notes", notes),
     ):
-        if value is not None:
+        if value is not UNSET:
             setattr(care_manager, field, _clean(value))
 
     session.add(care_manager)
