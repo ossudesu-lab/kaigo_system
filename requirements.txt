@@ -1,5 +1,7 @@
-fastapi
-uvicorn[standard]
-sqlmodel
-jinja2
-python-multipart
+# 動作確認したバージョンに固定している。
+# 固定しないと、ライブラリが更新されたある日から急に動かなくなることがあるため。
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+sqlmodel==0.0.50
+jinja2==3.1.6
+python-multipart==0.0.32

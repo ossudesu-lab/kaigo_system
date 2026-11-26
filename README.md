@@ -1,5 +1,7 @@
 # ショートステイ予約管理システム
 
+[![tests](https://github.com/ossudesu-lab/kaigo_system/actions/workflows/tests.yml/badge.svg)](https://github.com/ossudesu-lab/kaigo_system/actions/workflows/tests.yml)
+
 介護施設（ショートステイ）の予約・入浴計画・稼働レポートを、ひとつの画面群でまかなう業務システムです。
 短期入所の現場で14年間働いてきた視点から、
 「既存の介護システムは、現場が本当に困っている細かいところに手が届かない」という実感を出発点に、
@@ -225,6 +227,8 @@ python -m pytest
 ```
 
 テストはメモリ上の一時的なDBで動くので、`kaigo.db` の中身には影響しません。
+入浴回数・入浴日の割り当て、人数と稼働率の集計、部屋の重複検知といった中心の計算と、
+問い合わせ・利用者まわりの操作を確かめています。GitHub に push するたびに自動で実行されます。
 
 ---
 
