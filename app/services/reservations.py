@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from sqlmodel import Session, select
 
 from app.config import load_config
-from app.models import Reservation, UserMaster
+from app.models import Inquiry, Reservation, UserMaster
 
 
 class ValidationError(ValueError):
@@ -122,9 +122,24 @@ def update_reservation(
 
 
 def delete_reservation(session: Session, reservation_id: int) -> None:
+    """予約を消す。問い合わせから作った予約なら、問い合わせをキャンセル扱いにする。
+
+    現場で予約を消すのはキャンセルのとき。問い合わせ側に「予約済み」の
+    印が残ったままだと、消えた予約を指し続けるうえ、もう一度予約に
+    することもできなくなるため、印を外して状態をキャンセルにする。
+    """
     reservation = session.get(Reservation, reservation_id)
     if reservation is None:
         raise ValidationError(f"予約が見つかりません: {reservation_id}")
+
+    cancelled = load_config().inquiry.cancelled_status
+    for inquiry in session.exec(
+        select(Inquiry).where(Inquiry.reservation_id == reservation_id)
+    ):
+        inquiry.reservation_id = None
+        inquiry.status = cancelled
+        session.add(inquiry)
+
     session.delete(reservation)
     session.commit()
 

@@ -10,7 +10,7 @@ import re
 from sqlmodel import Session, select
 
 from app.config import load_config
-from app.models import CareManager, Gender, Reservation, UserMaster
+from app.models import CareManager, Gender, Inquiry, Reservation, UserMaster
 from app.services.common import UNSET
 from app.services.reservations import ValidationError
 
@@ -210,6 +210,15 @@ def delete_user(session: Session, user_id: int) -> None:
         raise ValidationError(
             f"この利用者には予約が{count}件あります。先に予約を削除してください。"
         )
+
+    # 問い合わせの記録は残す。名前はマスタから消えるので、問い合わせ側に
+    # 書き写しておく。そうしないと「（利用者未定）」と表示されてしまう。
+    for inquiry in session.exec(
+        select(Inquiry).where(Inquiry.user_master_id == user_id)
+    ):
+        inquiry.user_master_id = None
+        inquiry.guest_name = user.name
+        session.add(inquiry)
 
     session.delete(user)
     session.commit()

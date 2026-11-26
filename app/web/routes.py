@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
@@ -70,6 +70,15 @@ def _nav(day: date | None = None, month_of: date | None = None) -> dict:
     }
 
 
+def _valid_month(year: int | None, month: int | None) -> bool:
+    """URLの年・月が実在する月か。
+
+    URLを手で直したりブックマークが古かったりして month=13 などが来ると、
+    そのままでは500エラーで真っ白な画面になる。今月へ移す判断に使う。
+    """
+    return year is not None and month is not None and 1 <= month <= 12 and 1900 <= year <= 2999
+
+
 def _ticks(scale_max: int) -> list[int]:
     """グラフの目盛り。5,10,20…のきりのいい数で刻む。
 
@@ -91,10 +100,14 @@ def index() -> RedirectResponse:
 @router.get("/grid", response_class=HTMLResponse)
 def grid_page(
     request: Request,
-    year: int,
-    month: int,
+    year: int | None = None,
+    month: int | None = None,
     session: Session = Depends(get_session),
-) -> HTMLResponse:
+) -> Response:
+    if not _valid_month(year, month):
+        today = date.today()
+        return RedirectResponse(url=f"/grid?year={today.year}&month={today.month}")
+    assert year is not None and month is not None
     config = load_config()
     start, end = month_range(year, month)
 
@@ -232,11 +245,15 @@ def users_page(
 @router.get("/report", response_class=HTMLResponse)
 def report_page(
     request: Request,
-    year: int,
-    month: int,
+    year: int | None = None,
+    month: int | None = None,
     session: Session = Depends(get_session),
-) -> HTMLResponse:
+) -> Response:
     """月次レポート。日次の集計を1ヶ月分ためて並べたもの。"""
+    if not _valid_month(year, month):
+        today = date.today()
+        return RedirectResponse(url=f"/report?year={today.year}&month={today.month}")
+    assert year is not None and month is not None
     config = load_config()
     start, end = month_range(year, month)
 

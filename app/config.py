@@ -70,6 +70,10 @@ class Inquiry:
     kinds: tuple[str, ...]
     statuses: tuple[str, ...]
 
+    # 予約を削除したとき、元の問い合わせをこの状態にする。
+    # 現場では「予約を消す」＝「キャンセル」なので、未対応には戻さない。
+    cancelled_status: str = "キャンセル"
+
     @property
     def default_status(self) -> str:
         """新しい問い合わせの初期状態。並べた先頭を使う。"""
@@ -142,6 +146,19 @@ def _parse_bed(wing: str, token: str) -> Bed:
     )
 
 
+def _statuses_with_cancelled(inquiry_raw: dict) -> tuple[str, ...]:
+    """対応状況の選択肢。キャンセル用の状態が並んでいなければ末尾に足す。
+
+    予約を削除したときに問い合わせをその状態にするので、選択肢に無いと
+    編集画面で選べず、検索でも絞り込めなくなるため。
+    """
+    statuses = list(inquiry_raw.get("statuses", ["未対応", "対応中", "対応済み", "キャンセル"]))
+    cancelled = inquiry_raw.get("cancelled_status", "キャンセル")
+    if cancelled not in statuses:
+        statuses.append(cancelled)
+    return tuple(statuses)
+
+
 @lru_cache(maxsize=1)
 def load_config(path: Path | None = None) -> Config:
     # utf-8-sig にしているのは、config.toml を Windows のメモ帳で編集すると
@@ -183,7 +200,8 @@ def load_config(path: Path | None = None) -> Config:
         ),
         inquiry=Inquiry(
             kinds=tuple(inquiry_raw.get("kinds", ["空き確認", "新規相談", "変更", "キャンセル", "その他"])),
-            statuses=tuple(inquiry_raw.get("statuses", ["未対応", "対応中", "対応済み"])),
+            statuses=_statuses_with_cancelled(inquiry_raw),
+            cancelled_status=inquiry_raw.get("cancelled_status", "キャンセル"),
         ),
         aggregation=Aggregation(
             include_tentative=aggregation_raw.get("include_tentative", False),
